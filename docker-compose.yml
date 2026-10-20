@@ -1,0 +1,22 @@
+services:
+  fuck-hwcloud-grow:
+    build: .
+    container_name: fuck-hwcloud-grow
+    restart: unless-stopped
+    shm_size: "1gb"
+    ports:
+      - "8080:8080"
+      - "6080:6080"
+    environment:
+      TZ: Asia/Shanghai
+      HWCLOUD_USERNAME: ${HWCLOUD_USERNAME:-}
+      HWCLOUD_PASSWORD: ${HWCLOUD_PASSWORD:-}
+      XIZHI_KEY: ${XIZHI_KEY:-}
+      NOVNC_PASSWORD: ${NOVNC_PASSWORD:-}
+      NOVNC_PUBLIC_URL: ${NOVNC_PUBLIC_URL:-}
+      GROW_NO_SANDBOX: "true"
+      GROW_HUMAN_WAIT: ${GROW_HUMAN_WAIT:-10m}
+    volumes:
+      - ./data:/app/data
+      # 可选：不用 Compose 注入时，改为挂载 .env 让应用自行加载
+      # - ./.env:/app/.env:ro

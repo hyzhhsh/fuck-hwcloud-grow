@@ -31,3 +31,7 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Runtime data & secrets ###
+data/
+.env

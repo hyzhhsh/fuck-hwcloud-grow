@@ -6,11 +6,21 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * 存活探针，供容器编排与监控系统判断服务是否可用。
+ *
+ * <p>只返回固定字符串，不依赖任何外部服务或本地数据。</p>
+ */
 @RestController
 @RequestMapping("/health")
 @Tag(name = "健康检查", description = "服务运行状态检查接口")
 public class HealthController {
 
+    /**
+     * 健康检查。
+     *
+     * @return 固定返回 "OK"
+     */
     @GetMapping
     @Operation(summary = "健康检查", description = "检查服务是否正常运行")
     public String healthCheck() {

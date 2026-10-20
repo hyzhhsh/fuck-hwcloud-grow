@@ -1,11 +1,52 @@
 spring:
   application:
     name: fuck-hwcloud-grow
+  config:
+    import:
+      - optional:file:./.env[.properties]
+      - optional:file:./data/.env[.properties]
 
 server:
   port: 8080
   servlet:
     context-path: /fuck-hwcloud-grow
+
+hwcloud:
+  grow:
+    username: ${HWCLOUD_USERNAME:}
+    password: ${HWCLOUD_PASSWORD:}
+    account-name: ${HWCLOUD_ACCOUNT_NAME:}
+    cron: "${GROW_CRON:0 0 8 * * *}"
+    zone: "${GROW_ZONE:Asia/Shanghai}"
+    data-dir: ${GROW_DATA_DIR:./data}
+    api:
+      base-url: https://devdata.huaweicloud.com
+      connect-timeout: 10s
+      request-timeout: 30s
+      max-attempts: 3
+      retry-backoff: 2s
+      sign-busy-backoff: 5s
+    browser:
+      headless: ${GROW_HEADLESS:false}
+      profile-dir: ${GROW_DATA_DIR:./data}/browser-profile
+      auth-file: ${GROW_DATA_DIR:./data}/state/auth.json
+      auth-meta-file: ${GROW_DATA_DIR:./data}/state/auth-meta.json
+      login-timeout: 90s
+      human-wait: ${GROW_HUMAN_WAIT:10m}
+      poll-interval: 2s
+      no-sandbox: ${GROW_NO_SANDBOX:false}
+    notify:
+      xizhi-key: ${XIZHI_KEY:}
+      xizhi-base-url: https://xizhi.qqoq.net
+      no-vnc-url: ${NOVNC_PUBLIC_URL:}
+      timeout: 5s
+    run:
+      status-poll-attempts: 5
+      status-poll-interval: 3s
+
+logging:
+  level:
+    com.hesihai.fuckhwcloudgrow: INFO
 
 springdoc:
   group-configs:

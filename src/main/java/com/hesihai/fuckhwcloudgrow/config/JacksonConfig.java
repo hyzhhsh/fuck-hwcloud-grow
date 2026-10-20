@@ -1,4 +1,4 @@
-package com.hesihai.fuckhwcloudgrow.config.jackson;
+package com.hesihai.fuckhwcloudgrow.config;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
