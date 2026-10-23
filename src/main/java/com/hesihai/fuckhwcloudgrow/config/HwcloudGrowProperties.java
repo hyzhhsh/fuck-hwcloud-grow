@@ -164,6 +164,11 @@ public class HwcloudGrowProperties {
          */
         private boolean headless = false;
         /**
+         * 浏览器通道：chrome 表示使用系统安装的 Google Chrome（指纹更可信）；
+         * 留空则直接使用 Playwright 捆绑 Chromium。系统 Chrome 启动失败会自动回退捆绑 Chromium。
+         */
+        private String channel = "chrome";
+        /**
          * 浏览器持久化目录，默认 data/browser-profile。
          */
         private Path profileDir;

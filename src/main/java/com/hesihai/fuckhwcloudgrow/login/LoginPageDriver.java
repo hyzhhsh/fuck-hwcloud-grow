@@ -4,14 +4,13 @@ import cn.hutool.core.util.ObjectUtil;
 import cn.hutool.core.util.StrUtil;
 import com.hesihai.fuckhwcloudgrow.client.HuaweiUrls;
 import com.hesihai.fuckhwcloudgrow.client.browser.BrowserSession;
-import com.microsoft.playwright.Frame;
-import com.microsoft.playwright.Locator;
-import com.microsoft.playwright.Page;
-import com.microsoft.playwright.PlaywrightException;
+import com.microsoft.playwright.*;
+import com.microsoft.playwright.options.BoundingBox;
 import com.microsoft.playwright.options.WaitUntilState;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * 登录页 DOM 操作助手：只负责“怎么找、怎么填、怎么点、怎么等”。
@@ -46,6 +45,18 @@ final class LoginPageDriver {
      * 登录按钮 disabled 状态轮询间隔。
      */
     private static final int LOGIN_BUTTON_POLL_INTERVAL_MS = 300;
+    /**
+     * 逐字符输入时每个按键的随机延迟下限/上限（ms），模拟人工输入节奏。
+     */
+    private static final int TYPE_DELAY_MIN_MS = 60;
+    private static final int TYPE_DELAY_MAX_MS = 140;
+    /**
+     * 鼠标移动插值步数范围，以及点击前的停顿范围（ms）。
+     */
+    private static final int MOUSE_STEPS_MIN = 8;
+    private static final int MOUSE_STEPS_MAX = 15;
+    private static final int CLICK_PAUSE_MIN_MS = 80;
+    private static final int CLICK_PAUSE_MAX_MS = 200;
 
     private LoginPageDriver() {
     }
@@ -69,7 +80,7 @@ final class LoginPageDriver {
         // 新版登录页：密码登录 tab
         Locator passwordTab = findFirstVisible(page, LoginSelectors.PASSWORD_TAB_SELECTORS);
         if (ObjectUtil.isNotNull(passwordTab) && passwordTab.isVisible()) {
-            passwordTab.click();
+            humanClick(page, passwordTab);
             page.waitForTimeout(FORM_SWITCH_WAIT_MS);
             if (findFirstVisible(page, LoginSelectors.PERSONAL_ACCOUNT_INPUTS) != null) {
                 log.info("使用新版密码登录表单");
@@ -90,7 +101,7 @@ final class LoginPageDriver {
             Locator originalAccount = findFirstVisible(
                     page, LoginSelectors.HUAWEI_CLOUD_ACCOUNT_SELECTORS);
             if (ObjectUtil.isNotNull(originalAccount) && originalAccount.isVisible()) {
-                originalAccount.click();
+                humanClick(page, originalAccount);
                 page.waitForTimeout(ACCOUNT_FORM_WAIT_MS);
                 if (findFirstVisible(page, LoginSelectors.PERSONAL_ACCOUNT_INPUTS) != null) {
                     log.info("使用华为云账号登录表单");
@@ -107,7 +118,7 @@ final class LoginPageDriver {
     }
 
     /**
-     * 在候选选择器中找到第一个可见输入框并填入内容。
+     * 在候选选择器中找到第一个可见输入框并按人工节奏逐字符填入内容。
      *
      * @param page      页面
      * @param selectors 候选 CSS 选择器
@@ -119,8 +130,36 @@ final class LoginPageDriver {
         if (locator == null) {
             return false;
         }
-        locator.fill(value);
+        locator.fill("");
+        locator.pressSequentially(value, new Locator.PressSequentiallyOptions()
+                .setDelay(randomBetween(TYPE_DELAY_MIN_MS, TYPE_DELAY_MAX_MS)));
         return true;
+    }
+
+    /**
+     * 模拟人工点击：先把鼠标分几步移动到目标附近随机位置，短暂停顿后再点击；
+     * 取不到元素坐标时退回直接点击。
+     */
+    static void humanClick(Page page, Locator locator) {
+        BoundingBox box = null;
+        try {
+            box = locator.boundingBox();
+        } catch (PlaywrightException ignored) {
+            // 元素可能在取坐标时被移除，退回直接点击
+        }
+        if (ObjectUtil.isNotNull(box)) {
+            ThreadLocalRandom random = ThreadLocalRandom.current();
+            double x = box.x + box.width * (0.35 + random.nextDouble() * 0.3);
+            double y = box.y + box.height * (0.35 + random.nextDouble() * 0.3);
+            page.mouse().move(x, y, new Mouse.MoveOptions()
+                    .setSteps(randomBetween(MOUSE_STEPS_MIN, MOUSE_STEPS_MAX)));
+            page.waitForTimeout(randomBetween(CLICK_PAUSE_MIN_MS, CLICK_PAUSE_MAX_MS));
+        }
+        locator.click();
+    }
+
+    private static int randomBetween(int minInclusive, int maxInclusive) {
+        return ThreadLocalRandom.current().nextInt(minInclusive, maxInclusive + 1);
     }
 
     /**
@@ -139,7 +178,7 @@ final class LoginPageDriver {
                 page.waitForTimeout(LOGIN_BUTTON_POLL_INTERVAL_MS);
             }
             log.debug("登录按钮 class={}", button.getAttribute("class"));
-            button.click();
+            humanClick(page, button);
             return true;
         }
         Locator passwordInput = findFirstVisible(page, LoginSelectors.PERSONAL_PASSWORD_INPUTS);
@@ -163,7 +202,7 @@ final class LoginPageDriver {
             try {
                 Locator locator = frame.locator(selector).first();
                 if (locator.count() > 0 && locator.isVisible()) {
-                    locator.click();
+                    humanClick(frame.page(), locator);
                     return true;
                 }
             } catch (PlaywrightException ignored) {
