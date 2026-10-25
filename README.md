@@ -29,7 +29,11 @@
    XIZHI_KEY=你的息知推送key（可选，不填则不推送）
    ```
 
-2. **安装 Playwright 浏览器**（首次或升级依赖后执行）：
+2. **浏览器准备**：
+
+   程序默认优先使用系统安装的 **Google Chrome**（`GROW_BROWSER_CHANNEL=chrome`），本机装了 Chrome 即可直接启动，无需额外安装。
+
+   若本机没有 Chrome（或配置了 `GROW_BROWSER_CHANNEL=` 强制使用捆绑 Chromium），需要安装 Playwright 捆绑浏览器（首次或升级依赖后执行）：
 
    ```bash
    mvn -Pinstall-browser compile exec:java
@@ -69,7 +73,7 @@
    docker compose up -d --build
    ```
 
-   运行镜像基于 Playwright 官方 Java 镜像，浏览器已内置，无需手动安装。
+   运行镜像基于 Playwright 官方 Java 镜像，并在构建时额外安装了 Google Chrome，浏览器无需手动安装。
 
 4. **验证**：
 
@@ -94,6 +98,7 @@
 | `GROW_ZONE` | 否 | 时区，默认 `Asia/Shanghai` |
 | `GROW_HUMAN_WAIT` | 否 | 人工介入最长等待时间，默认 `10m` |
 | `GROW_HEADLESS` | 否 | 是否无头模式，默认 `false` |
+| `GROW_BROWSER_CHANNEL` | 否 | 浏览器通道，默认 `chrome`（使用系统安装的 Google Chrome）；设为空则使用 Playwright 捆绑 Chromium，系统 Chrome 启动失败会自动回退 |
 
 ## 常用接口
 
@@ -111,4 +116,5 @@
 - **接口未做鉴权**，请仅在内网或本机部署暴露，不要直接暴露到公网
 - `.env` 包含账号密码等敏感信息，已加入 `.gitignore`，请勿提交
 - `data/` 目录存放登录态（`data/state/`）、浏览器 profile（`data/browser-profile/`）与签到结果，删除后重新运行会触发重新登录
+- 为降低华为云登录风控（"设备不安全" 408 拦截）概率，程序默认使用系统 Chrome 并隐藏自动化特征；建议首次使用时在弹出的浏览器窗口中**手动登录一次并勾选"信任此设备"**，登录态会保留在 `data/browser-profile/` 供后续复用
 - 息知推送服务地址：<https://xz.qqoq.net>，`XIZHI_KEY` 在该平台获取

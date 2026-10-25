@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 有头浏览器会话：持久化用户目录 + 登录态保存。
@@ -35,7 +36,16 @@ public class BrowserSession implements AutoCloseable {
     private static final String ARG_LANG = "--lang=zh-CN";
     private static final String ARG_NO_SANDBOX = "--no-sandbox";
     private static final String ARG_DISABLE_DEV_SHM = "--disable-dev-shm-usage";
-    private static final String ARG_DISABLE_GPU = "--disable-gpu";
+    /**
+     * 移除 Blink 的 AutomationControlled 特征，使 navigator.webdriver 与真实 Chrome 一致为 false。
+     */
+    private static final String ARG_DISABLE_BLINK_AUTOMATION =
+            "--disable-blink-features=AutomationControlled";
+    /**
+     * 初始化脚本兜底：个别渠道浏览器可能忽略上面的启动参数，再强制一次 webdriver=false。
+     */
+    private static final String HIDE_WEBDRIVER_SCRIPT =
+            "Object.defineProperty(navigator, 'webdriver', { get: () => false });";
 
     private final Playwright playwright;
     private final BrowserContext context;
@@ -43,13 +53,17 @@ public class BrowserSession implements AutoCloseable {
     private BrowserSession(Playwright playwright, BrowserContext context) {
         this.playwright = playwright;
         this.context = context;
+        context.addInitScript(HIDE_WEBDRIVER_SCRIPT);
         ensurePage();
     }
 
     /**
      * 启动持久化浏览器会话。
      *
-     * @param properties 配置，用于 profile 目录、headless、no-sandbox 等
+     * <p>优先使用配置的 channel（如系统安装的 Google Chrome，指纹可信度更高）；
+     * channel 未配置或启动失败时回退 Playwright 捆绑 Chromium。</p>
+     *
+     * @param properties 配置，用于 profile 目录、channel、headless、no-sandbox 等
      * @return 已启动的会话，调用方负责 {@link #close()}
      * @throws BrowserLaunchException 目录创建失败或浏览器启动失败
      */
@@ -61,26 +75,59 @@ public class BrowserSession implements AutoCloseable {
             throw new BrowserLaunchException("无法创建浏览器 profile 目录：" + profileDir, e);
         }
 
+        String channel = StrUtil.trimToNull(properties.getBrowser().getChannel());
+        // 指定了 channel 时跳过捆绑浏览器下载；回退路径要求捆绑 Chromium 已存在
         Playwright playwright = null;
         try {
-            playwright = Playwright.create();
-            BrowserType.LaunchPersistentContextOptions options =
-                    new BrowserType.LaunchPersistentContextOptions()
-                            .setHeadless(properties.getBrowser().isHeadless())
-                            .setLocale(BROWSER_LOCALE)
-                            .setTimezoneId(BROWSER_TIMEZONE)
-                            .setViewportSize((ViewportSize) null)
-                            .setArgs(launchArgs(properties));
-            BrowserContext context = playwright.chromium().launchPersistentContext(profileDir, options);
-            log.info("浏览器已启动，profile={}", profileDir);
+            Playwright.CreateOptions createOptions = new Playwright.CreateOptions();
+            if (ObjectUtil.isNotNull(channel)) {
+                createOptions.setEnv(Map.of("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD", "1"));
+            }
+            playwright = Playwright.create(createOptions);
+            BrowserContext context = launchContext(playwright, properties, channel);
+            log.info("浏览器已启动，channel={}，profile={}",
+                    ObjectUtil.defaultIfNull(channel, "chromium"), profileDir);
             return new BrowserSession(playwright, context);
-        } catch (PlaywrightException e) {
+        } catch (PlaywrightException first) {
+            if (ObjectUtil.isNotNull(channel)) {
+                log.warn("启动系统 Chrome（channel={}）失败：{}，回退捆绑 Chromium",
+                        channel, first.getMessage());
+                try {
+                    BrowserContext context = launchContext(playwright, properties, null);
+                    return new BrowserSession(playwright, context);
+                } catch (PlaywrightException second) {
+                    closeQuietly(playwright);
+                    throw new BrowserLaunchException(
+                            "系统 Chrome 与捆绑 Chromium 均启动失败。若从未安装过捆绑浏览器，"
+                                    + "请先执行 mvn -Pinstall-browser compile exec:java，"
+                                    + "或在容器镜像中安装 google-chrome-stable。原因："
+                                    + second.getMessage(),
+                            second);
+                }
+            }
             closeQuietly(playwright);
             throw new BrowserLaunchException(
                     "启动有头浏览器失败。请确认 Chromium 已安装（mvn -Pinstall-browser compile exec:java），"
-                            + "Linux 下确认 DISPLAY/Xvfb 正常。原因：" + e.getMessage(),
-                    e);
+                            + "Linux 下确认 DISPLAY/Xvfb 正常。原因：" + first.getMessage(),
+                    first);
         }
+    }
+
+    private static BrowserContext launchContext(Playwright playwright,
+                                                HwcloudGrowProperties properties,
+                                                String channel) {
+        BrowserType.LaunchPersistentContextOptions options =
+                new BrowserType.LaunchPersistentContextOptions()
+                        .setHeadless(properties.getBrowser().isHeadless())
+                        .setLocale(BROWSER_LOCALE)
+                        .setTimezoneId(BROWSER_TIMEZONE)
+                        .setViewportSize((ViewportSize) null)
+                        .setArgs(launchArgs(properties));
+        if (ObjectUtil.isNotNull(channel)) {
+            options.setChannel(channel);
+        }
+        return playwright.chromium().launchPersistentContext(
+                properties.effectiveProfileDir().toAbsolutePath(), options);
     }
 
     private static List<String> launchArgs(HwcloudGrowProperties properties) {
@@ -88,10 +135,10 @@ public class BrowserSession implements AutoCloseable {
         args.add(ARG_START_MAXIMIZED);
         args.add(ARG_WINDOW_SIZE);
         args.add(ARG_LANG);
+        args.add(ARG_DISABLE_BLINK_AUTOMATION);
         if (properties.getBrowser().isNoSandbox()) {
             args.add(ARG_NO_SANDBOX);
             args.add(ARG_DISABLE_DEV_SHM);
-            args.add(ARG_DISABLE_GPU);
         }
         return args;
     }
