@@ -1,0 +1,9 @@
+include:
+  - https://cnb.cool/hyzhhsh/repo-sync/sync-config/-/blob/main/.template.yml
+
+main:
+  push:
+    repo-sync:
+      env:
+        SYNC_TARGETS: |
+          github|github.com/hyzhhsh/fuck-hwcloud-grow.git|x-access-token|${GITHUB_TOKEN}
