@@ -11,8 +11,7 @@ import java.util.List;
 /**
  * 统一识别华为云接口的 HTTP 状态与业务错误码。
  *
- * <p>错误分类会直接影响上层“重试 / 转浏览器 / 直接失败”的决策，
- * 因此集中在这里维护，HTTP 与 Playwright 两条路径共用。</p>
+ * <p>错误分类会直接影响上层“重试 / 失败 / 中止批次”的决策，因此集中在这里维护。</p>
  */
 public final class ResponseClassifier {
 

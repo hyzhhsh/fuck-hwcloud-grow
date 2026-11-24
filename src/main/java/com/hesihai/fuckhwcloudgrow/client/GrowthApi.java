@@ -3,12 +3,15 @@ package com.hesihai.fuckhwcloudgrow.client;
 import com.hesihai.fuckhwcloudgrow.client.dto.BeansInfoResponse;
 import com.hesihai.fuckhwcloudgrow.client.dto.SignStatusResponse;
 import com.hesihai.fuckhwcloudgrow.client.dto.SignSubmitOutcome;
+import com.hesihai.fuckhwcloudgrow.client.dto.TaskListResponse;
 import com.hesihai.fuckhwcloudgrow.client.dto.UserInfoResponse;
 
+import java.util.List;
+
 /**
- * 成长中心签到接口的抽象。
+ * 成长中心接口的抽象。
  *
- * <p>Java HTTP 与 Playwright 页面内 fetch 各实现一份，签到编排逻辑只依赖此接口。</p>
+ * <p>当前实现为 Java HTTP 通道；任务编排逻辑只依赖此接口。</p>
  */
 public interface GrowthApi extends AutoCloseable {
 
@@ -35,6 +38,14 @@ public interface GrowthApi extends AutoCloseable {
      * @throws GrowthApiException 接口调用失败或返回业务错误
      */
     BeansInfoResponse getBeans();
+
+    /**
+     * 读取全部任务记录（自动翻页），用于校验其他每日任务的完成状态。
+     *
+     * @return 任务记录列表，接口失败时抛出 {@link GrowthApiException}
+     * @throws GrowthApiException 接口调用失败或返回业务错误
+     */
+    List<TaskListResponse.TaskRecord> listTasks();
 
     /**
      * 提交每日签到。

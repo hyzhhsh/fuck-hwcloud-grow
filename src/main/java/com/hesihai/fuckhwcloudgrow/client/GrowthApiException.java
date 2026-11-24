@@ -4,7 +4,7 @@ import com.hesihai.fuckhwcloudgrow.model.FailCode;
 import lombok.Getter;
 
 /**
- * 调用华为云接口失败。携带分类信息，供签到编排决定重试、降级或失败。
+ * 调用华为云接口失败。携带分类信息，供任务编排决定重试或失败。
  */
 @Getter
 public class GrowthApiException extends RuntimeException {
@@ -109,19 +109,5 @@ public class GrowthApiException extends RuntimeException {
      */
     public static GrowthApiException accountAbnormal(String vendorCode, String message) {
         return new GrowthApiException(FailCode.ACCOUNT_ABNORMAL, message, vendorCode, false, null);
-    }
-
-    /**
-     * 是否值得启动浏览器降级重试。
-     *
-     * <p>只有登录态失效、被 WAF 拦截、网络错误三类问题浏览器路径可能解决，
-     * 其余（如账号异常）降级没有意义。</p>
-     *
-     * @return true 表示应转入浏览器路径
-     */
-    public boolean shouldFallbackToBrowser() {
-        return code == FailCode.SESSION_EXPIRED
-                || code == FailCode.WAF_BLOCKED
-                || code == FailCode.NETWORK;
     }
 }

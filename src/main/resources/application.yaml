@@ -40,6 +40,22 @@ hwcloud:
       xizhi-base-url: https://xizhi.qqoq.net
       no-vnc-url: ${NOVNC_PUBLIC_URL:}
       timeout: 5s
+    tasks:
+      total-timeout: ${GROW_TASKS_TOTAL_TIMEOUT:20m}
+      credential:
+        probe-timeout: ${GROW_CREDENTIAL_PROBE_TIMEOUT:10s}
+      signin:
+        enabled: ${GROW_TASK_SIGNIN_ENABLED:true}
+      harmony:
+        enabled: ${GROW_TASK_HARMONY_ENABLED:true}
+        base-url: https://harmonybp.developer.huaweicloud.com
+        heartbeat-interval: 5s
+        max-extra-wait: 30s
+        case-page-size: 20
+        case-id: ${GROW_HARMONY_CASE_ID:}
+        task-tag: ${GROW_HARMONY_TASK_TAG:}
+        title-keywords:
+          - 鸿蒙
 
 logging:
   level:

@@ -7,9 +7,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 
 /**
- * 华为云成长中心签到相关配置。
+ * 华为云成长中心每日任务与登录相关配置。
  *
  * <p>账号密码等敏感项不提供 toString，避免被日志或异常信息带出。</p>
  */
@@ -31,7 +32,7 @@ public class HwcloudGrowProperties {
      */
     private String accountName = "";
     /**
-     * 每日签到 cron 表达式，默认每天 8 点。
+     * 每日任务批次 cron 表达式，默认每天 8 点。
      */
     private String cron = "0 0 8 * * *";
     /**
@@ -47,13 +48,17 @@ public class HwcloudGrowProperties {
      */
     private Api api = new Api();
     /**
-     * 浏览器降级配置。
+     * 登录流程使用的浏览器配置。
      */
     private Browser browser = new Browser();
     /**
      * 息知通知配置。
      */
     private Notify notify = new Notify();
+    /**
+     * 多任务自动化配置。
+     */
+    private Tasks tasks = new Tasks();
 
     /**
      * 登录态目录：显式配置 authFile 时取其父目录，否则用默认的 data/state。
@@ -116,6 +121,15 @@ public class HwcloudGrowProperties {
     }
 
     /**
+     * 最近一次批量任务结果文件。
+     *
+     * @return 固定为 data/state/last-batch.json
+     */
+    public Path effectiveLastBatchFile() {
+        return dataDir.resolve("state/last-batch.json");
+    }
+
+    /**
      * 华为云接口调用参数。
      */
     @Getter
@@ -145,7 +159,7 @@ public class HwcloudGrowProperties {
     }
 
     /**
-     * 浏览器降级与登录流程参数。
+     * 登录流程与浏览器参数。
      */
     @Getter
     @Setter
@@ -213,5 +227,82 @@ public class HwcloudGrowProperties {
          * 推送请求超时。
          */
         private Duration timeout = Duration.ofSeconds(5);
+    }
+
+    /**
+     * 多任务自动化配置。
+     */
+    @Getter
+    @Setter
+    public static class Tasks {
+
+        /**
+         * 整批任务的最长执行时间，超出后剩余任务记 SKIPPED。
+         */
+        private Duration totalTimeout = Duration.ofMinutes(20);
+        /**
+         * 凭据探测配置。
+         */
+        private Credential credential = new Credential();
+        /**
+         * 每日签到任务开关。
+         */
+        private Signin signin = new Signin();
+        /**
+         * 鸿蒙案例浏览任务配置。
+         */
+        private Harmony harmony = new Harmony();
+
+        @Getter
+        @Setter
+        public static class Credential {
+
+            /**
+             * 单域登录态探测超时。
+             */
+            private Duration probeTimeout = Duration.ofSeconds(10);
+        }
+
+        @Getter
+        @Setter
+        public static class Signin {
+
+            private boolean enabled = true;
+        }
+
+        @Getter
+        @Setter
+        public static class Harmony {
+
+            private boolean enabled = true;
+            /**
+             * 鸿蒙实践中心站点源。
+             */
+            private String baseUrl = "https://harmonybp.developer.huaweicloud.com";
+            /**
+             * 心跳上报间隔，与页面行为保持一致。
+             */
+            private Duration heartbeatInterval = Duration.ofSeconds(5);
+            /**
+             * 在服务端要求时长之外额外等待的上限。
+             */
+            private Duration maxExtraWait = Duration.ofSeconds(30);
+            /**
+             * 选择案例时的列表页大小。
+             */
+            private int casePageSize = 20;
+            /**
+             * 指定案例 ID；为空则按日期在列表中轮转。
+             */
+            private String caseId = "";
+            /**
+             * 成长中心任务列表中该任务的 task_tag；未知时留空，按标题关键字匹配。
+             */
+            private String taskTag = "";
+            /**
+             * 成长中心任务列表中该任务的标题关键字。
+             */
+            private List<String> titleKeywords = List.of("鸿蒙");
+        }
     }
 }

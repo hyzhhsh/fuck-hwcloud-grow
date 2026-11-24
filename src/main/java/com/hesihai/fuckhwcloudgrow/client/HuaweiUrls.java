@@ -17,7 +17,7 @@ public final class HuaweiUrls {
      */
     public static final String GROW_URL = GROW_ORIGIN + "/";
     /**
-     * 成长中心主机名（不含协议），用于判断页面是否处于签到的同源站点。
+     * 成长中心主机名（不含协议），用于判断页面是否处于成长中心站点。
      */
     public static final String GROW_HOST = "grow.developer.huaweicloud.com";
     /**
@@ -30,6 +30,10 @@ public final class HuaweiUrls {
      * 数据接口根地址。
      */
     public static final String API_BASE = "https://grow-dataset.developer.huaweicloud.com";
+    /**
+     * 数据接口主机名：接口请求必须打到该域，前端域对 /api/** 会返回 SPA HTML。
+     */
+    public static final String API_HOST = "grow-dataset.developer.huaweicloud.com";
     /**
      * 成长中心主域（不含协议），用于页面 URL 归属判断。
      */
@@ -51,7 +55,7 @@ public final class HuaweiUrls {
      */
     public static final String SIGN_IN_PATH = API_PREFIX + "/user/sign-in";
     /**
-     * 任务列表接口，用于读取每日签到任务的完成状态。
+     * 任务列表接口，用于读取各每日任务的完成状态。
      */
     public static final String USER_TASKS_PATH = API_PREFIX + "/user/tasks";
     /**

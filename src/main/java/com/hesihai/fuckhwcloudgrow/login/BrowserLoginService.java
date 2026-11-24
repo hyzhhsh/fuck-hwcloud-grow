@@ -11,11 +11,13 @@ import com.hesihai.fuckhwcloudgrow.model.FailCode;
 import com.hesihai.fuckhwcloudgrow.notify.XizhiNotifier;
 import com.hesihai.fuckhwcloudgrow.util.SleepUtils;
 import com.microsoft.playwright.Page;
+import com.microsoft.playwright.options.LoadState;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 
 /**
  * 华为云个人账号登录流程：自动填充、验证码/MFA 检测、人工等待与登录态保存。
@@ -32,6 +34,10 @@ public class BrowserLoginService {
     private static final Duration CHALLENGE_GRACE = Duration.ofSeconds(20);
     private static final Duration POST_SUBMIT_WAIT = Duration.ofSeconds(2);
     private static final long RISK_RETRY_WAIT_MS = 2000;
+    /**
+     * 预热各子域后等待 Cookie 落地的时长。
+     */
+    private static final long WARMUP_SETTLE_MS = 1000;
     /**
      * 风控拦截的对外统一描述，用于结果消息。
      */
@@ -104,6 +110,34 @@ public class BrowserLoginService {
             persister.saveDiagnostics(page, runId, "login-exception");
             return LoginOutcome.failure(FailCode.LOGIN_FAILED, "浏览器登录异常：" + e.getMessage());
         }
+    }
+
+    /**
+     * 依次打开预热地址（让 SSO 在各子域下发 Cookie），再导出并保存登录态。
+     *
+     * <p>预热失败只记录日志：单个子域打不开不应让整批任务失败。</p>
+     *
+     * @param session    已登录的浏览器会话
+     * @param runId      批次 ID，用于诊断命名
+     * @param warmupUrls 需要预热的站点首页
+     */
+    public void saveStateAfterWarmup(BrowserSession session, String runId, List<String> warmupUrls) {
+        Page page = session.page();
+        if (ObjectUtil.isNull(page) || page.isClosed()) {
+            log.warn("浏览器页面不可用，跳过登录态预热");
+            return;
+        }
+        for (String url : warmupUrls) {
+            try {
+                LoginPageDriver.navigate(page, url);
+                page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+                page.waitForTimeout(WARMUP_SETTLE_MS);
+                log.info("登录态预热完成：{} -> {}", url, page.url());
+            } catch (Exception e) {
+                log.warn("登录态预热失败：{}（{}）", url, e.getMessage());
+            }
+        }
+        persister.save(session, runId);
     }
 
     /**

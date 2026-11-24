@@ -19,7 +19,7 @@ import java.time.Instant;
 /**
  * 登录成功后的持久化：导出 storageState、保存账号元数据，并在失败时落盘诊断材料。
  *
- * <p>storageState 保存失败不应影响签到主流程，因此这里只记录日志，不向上抛异常。</p>
+ * <p>storageState 保存失败不应影响任务主流程，因此这里只记录日志，不向上抛异常。</p>
  */
 @Slf4j
 final class LoginStatePersister {

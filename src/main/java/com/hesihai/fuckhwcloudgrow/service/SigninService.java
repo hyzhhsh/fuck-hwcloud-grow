@@ -4,59 +4,59 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.ObjectUtil;
 import cn.hutool.core.util.StrUtil;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hesihai.fuckhwcloudgrow.auth.AuthMeta;
-import com.hesihai.fuckhwcloudgrow.auth.AuthStateStore;
+import com.hesihai.fuckhwcloudgrow.auth.CredentialService;
+import com.hesihai.fuckhwcloudgrow.auth.CredentialStatus;
 import com.hesihai.fuckhwcloudgrow.auth.StoredCookie;
+import com.hesihai.fuckhwcloudgrow.client.GrowthApi;
 import com.hesihai.fuckhwcloudgrow.client.GrowthApiException;
-import com.hesihai.fuckhwcloudgrow.client.browser.BrowserLaunchException;
-import com.hesihai.fuckhwcloudgrow.client.browser.BrowserSession;
-import com.hesihai.fuckhwcloudgrow.client.browser.PlaywrightGrowthApi;
+import com.hesihai.fuckhwcloudgrow.client.HttpAccess;
+import com.hesihai.fuckhwcloudgrow.client.HuaweiUrls;
 import com.hesihai.fuckhwcloudgrow.client.dto.SignStatusResponse;
 import com.hesihai.fuckhwcloudgrow.client.dto.UserInfoResponse;
-import com.hesihai.fuckhwcloudgrow.client.http.CookieJar;
-import com.hesihai.fuckhwcloudgrow.client.http.HttpGrowthApi;
 import com.hesihai.fuckhwcloudgrow.config.HwcloudGrowProperties;
-import com.hesihai.fuckhwcloudgrow.login.BrowserLoginService;
-import com.hesihai.fuckhwcloudgrow.login.LoginOutcome;
-import com.hesihai.fuckhwcloudgrow.model.*;
+import com.hesihai.fuckhwcloudgrow.model.FailCode;
+import com.hesihai.fuckhwcloudgrow.model.LiveStatus;
+import com.hesihai.fuckhwcloudgrow.model.RunTrigger;
+import com.hesihai.fuckhwcloudgrow.model.SigninResult;
+import com.hesihai.fuckhwcloudgrow.model.SigninStatus;
 import com.hesihai.fuckhwcloudgrow.notify.XizhiNotifier;
+import com.hesihai.fuckhwcloudgrow.service.task.AutomationLock;
+import com.hesihai.fuckhwcloudgrow.service.task.TaskContext;
 import com.hesihai.fuckhwcloudgrow.storage.SigninResultStore;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * 签到任务入口：并发控制、HTTP 快速路径、浏览器降级、结果持久化与通知。
+ * 每日签到任务：并发控制、HTTP 执行、结果持久化与通知。
+ *
+ * <p>登录态由 {@link CredentialService} 负责，本类不再启动浏览器。</p>
  */
 @Slf4j
 @Service
 public class SigninService {
 
     private final HwcloudGrowProperties properties;
-    private final AuthStateStore authStateStore;
-    private final BrowserLoginService browserLoginService;
+    private final CredentialService credentials;
+    private final HttpAccess httpAccess;
     private final SigninFlow signinFlow;
     private final SigninResultStore resultStore;
     private final XizhiNotifier notifier;
-    private final ObjectMapper objectMapper;
-    // 争用方只有定时任务与偶发手动请求，非公平锁吞吐更好且公平性无收益
-    private final ReentrantLock lock = new ReentrantLock();
+    private final AutomationLock automationLock;
 
-    public SigninService(HwcloudGrowProperties properties, AuthStateStore authStateStore,
-                         BrowserLoginService browserLoginService, SigninFlow signinFlow,
+    public SigninService(HwcloudGrowProperties properties, CredentialService credentials,
+                         HttpAccess httpAccess, SigninFlow signinFlow,
                          SigninResultStore resultStore, XizhiNotifier notifier,
-                         ObjectMapper objectMapper) {
+                         AutomationLock automationLock) {
         this.properties = properties;
-        this.authStateStore = authStateStore;
-        this.browserLoginService = browserLoginService;
+        this.credentials = credentials;
+        this.httpAccess = httpAccess;
         this.signinFlow = signinFlow;
         this.resultStore = resultStore;
         this.notifier = notifier;
-        this.objectMapper = objectMapper;
+        this.automationLock = automationLock;
         log.info("签到配置：cron={}, zone={}, 账号已配置={}, 密码已配置={}",
                 properties.getCron(), properties.getZone(),
                 StrUtil.isNotBlank(properties.getUsername()),
@@ -72,67 +72,72 @@ public class SigninService {
     }
 
     /**
-     * 执行一次签到：HTTP 快速路径优先，失败时降级到浏览器。
-     *
-     * <p>同一时刻只允许一个任务运行；结果持久化到 last-result.json 并按状态推送通知。</p>
+     * 执行一次签到（旧接口入口）：先由凭据层确保登录态，再走 HTTP 签到，结果按状态推送通知。
      *
      * @param trigger 触发来源
      * @return 签到结果
-     * @throws SigninBusyException 已有签到任务正在执行
+     * @throws SigninBusyException 已有任务正在执行
      */
     public SigninResult run(RunTrigger trigger) {
-        if (!lock.tryLock()) {
-            throw new SigninBusyException("签到任务正在执行中，请稍后重试");
+        if (!automationLock.tryAcquire()) {
+            throw new SigninBusyException("任务正在执行中，请稍后重试");
         }
         try {
             String runId = IdUtil.randomUUID();
             Instant startedAt = Instant.now();
-            SigninResult result;
-            try {
-                result = executeRun(runId, trigger, startedAt);
-            } catch (Exception e) {
-                log.error("签到任务异常：{}", e.getMessage(), e);
-                result = SigninResultFactory.failure(runId, trigger, startedAt, FailCode.UNKNOWN,
-                        "签到任务异常：" + e.getMessage(), "NONE", false);
-            }
+            CredentialStatus credential = credentials.ensureValid(List.of(HuaweiUrls.API_HOST), runId);
+            SigninResult result = credential.valid()
+                    ? executeHttp(runId, trigger, startedAt, credential.isHumanIntervention())
+                    : credentialFailure(runId, trigger, startedAt, credential);
             resultStore.save(result);
-            if (result.getStatus() == SigninStatus.FAILED) {
-                notifier.failed(result);
-            } else {
-                notifier.dailyResult(result);
-            }
+            notifyResult(result);
             return result;
         } finally {
-            lock.unlock();
+            automationLock.release();
         }
     }
 
     /**
-     * 读取最近一次签到结果，控制器不再直接依赖持久化实现。
+     * 在批次内执行签到：凭据已由编排器确认，这里只发 HTTP 请求。
      *
-     * @return 最近一次结果，从未执行过时为 null
+     * @param trigger 触发来源
+     * @param ctx     批次上下文；为 null 时按独立执行处理
+     * @return 签到结果
      */
+    public SigninResult run(RunTrigger trigger, TaskContext ctx) {
+        if (!automationLock.tryAcquire()) {
+            throw new SigninBusyException("任务正在执行中，请稍后重试");
+        }
+        try {
+            String runId = ObjectUtil.isNull(ctx) ? IdUtil.randomUUID() : ctx.runId();
+            Instant startedAt = Instant.now();
+            SigninResult result = executeHttp(runId, trigger, startedAt, false);
+            resultStore.save(result);
+            if (ObjectUtil.isNull(ctx) || ctx.notifySelf()) {
+                notifyResult(result);
+            }
+            return result;
+        } finally {
+            automationLock.release();
+        }
+    }
+
     public SigninResult lastResult() {
         return resultStore.loadLast();
     }
 
     /**
-     * 只读查询当前登录态与签到状态。
-     *
-     * <p>仅走 HTTP 快速路径，登录态无效时返回描述信息，不启动浏览器、不触发登录。</p>
-     *
-     * @return 实时状态
+     * 只读查询当前登录态与签到状态；只走 HTTP，不启动浏览器。
      */
     public LiveStatus queryStatus() {
-        List<StoredCookie> cookies = authStateStore.loadCookiesFromFile();
+        List<StoredCookie> cookies = httpAccess.cookies();
         if (CollUtil.isEmpty(cookies)) {
             return LiveStatus.builder()
                     .sessionValid(false)
                     .message("未找到本地登录态，请先执行签到任务")
                     .build();
         }
-        AuthMeta meta = authStateStore.loadMetaFromFile();
-        try (HttpGrowthApi api = newHttpApi(cookies, meta)) {
+        try (GrowthApi api = httpAccess.growthApi()) {
             UserInfoResponse user = api.getUserInfo();
             SignStatusResponse status = querySignStatusQuietly(api);
             return LiveStatus.builder()
@@ -159,69 +164,37 @@ public class SigninService {
         }
     }
 
-    /**
-     * HTTP 快速路径主流程：加载登录态、执行签到，异常时决定降级或记录失败。
-     */
-    private SigninResult executeRun(String runId, RunTrigger trigger, Instant startedAt) {
-        List<StoredCookie> cookies = authStateStore.loadCookiesFromFile();
-        if (CollUtil.isEmpty(cookies)) {
-            return runWithBrowser(runId, trigger, startedAt, "未找到本地登录态");
-        }
-
-        AuthMeta meta = authStateStore.loadMetaFromFile();
-        try (HttpGrowthApi api = newHttpApi(cookies, meta)) {
-            return signinFlow.execute(api, runId, trigger, startedAt, false);
+    private SigninResult executeHttp(String runId, RunTrigger trigger, Instant startedAt,
+                                     boolean humanIntervention) {
+        try (GrowthApi api = httpAccess.growthApi()) {
+            return signinFlow.execute(api, runId, trigger, startedAt, humanIntervention);
         } catch (GrowthApiException e) {
-            // 只有登录态失效、WAF、网络错误才值得启动浏览器；业务失败直接记录
-            if (e.shouldFallbackToBrowser()) {
-                log.info("HTTP 快速路径失败（{}），转入浏览器：{}", e.getCode(), e.getMessage());
-                // 先清除已失效的登录态，避免浏览器重新登录后又被旧状态覆盖、下次仍复用死状态
-                if (e.getCode() == FailCode.SESSION_EXPIRED) {
-                    authStateStore.invalidate();
-                }
-                return runWithBrowser(runId, trigger, startedAt, e.getMessage());
-            }
             return SigninResultFactory.failure(runId, trigger, startedAt, e.getCode(),
-                    apiFailureMessage(e), "HTTP", false);
+                    apiFailureMessage(e), "HTTP", humanIntervention);
         }
     }
 
-    /**
-     * 浏览器降级路径：启动浏览器、确保登录态、执行签到，所有异常就地转为失败结果。
-     */
-    private SigninResult runWithBrowser(String runId, RunTrigger trigger,
-                                        Instant startedAt, String reason) {
-        log.info("启动浏览器处理签到：{}", reason);
-        try (BrowserSession session = BrowserSession.launch(properties)) {
-            LoginOutcome login = browserLoginService.ensureLoggedIn(session, runId);
-            if (!login.success()) {
-                return SigninResultFactory.failure(runId, trigger, startedAt, login.failCode(),
-                        login.message(), "PLAYWRIGHT", login.humanIntervention());
-            }
+    private SigninResult credentialFailure(String runId, RunTrigger trigger, Instant startedAt,
+                                           CredentialStatus credential) {
+        FailCode code = credential.getLevel() == CredentialStatus.Level.WAF_BLOCKED
+                ? FailCode.WAF_BLOCKED
+                : FailCode.SESSION_EXPIRED;
+        return SigninResultFactory.failure(runId, trigger, startedAt, code,
+                "签到未执行：" + credential.getMessage(), "NONE", credential.isHumanIntervention());
+    }
 
-            PlaywrightGrowthApi api = newPlaywrightApi(session);
-            try {
-                return signinFlow.execute(api, runId, trigger, startedAt,
-                        login.humanIntervention());
-            } catch (GrowthApiException e) {
-                return SigninResultFactory.failure(runId, trigger, startedAt, e.getCode(),
-                        apiFailureMessage(e), "PLAYWRIGHT", login.humanIntervention());
-            }
-        } catch (BrowserLaunchException e) {
-            log.warn("浏览器启动失败：{}", e.getMessage());
-            return SigninResultFactory.failure(runId, trigger, startedAt, FailCode.LOGIN_FAILED,
-                    e.getMessage(), "PLAYWRIGHT", false);
-        } catch (Exception e) {
-            log.warn("浏览器签到失败：{}", e.getMessage());
-            return SigninResultFactory.failure(runId, trigger, startedAt, FailCode.LOGIN_FAILED,
-                    "浏览器签到失败：" + e.getMessage(), "PLAYWRIGHT", false);
+    private void notifyResult(SigninResult result) {
+        if (result.getStatus() == SigninStatus.FAILED) {
+            notifier.failed(result);
+        } else {
+            notifier.dailyResult(result);
         }
     }
 
     /**
      * 只读查询签到任务状态；任务接口偶发失败时返回 null，不影响登录态判定。
      */
-    private SignStatusResponse querySignStatusQuietly(HttpGrowthApi api) {
+    private SignStatusResponse querySignStatusQuietly(GrowthApi api) {
         try {
             return api.getSignStatus();
         } catch (GrowthApiException e) {
@@ -231,18 +204,5 @@ public class SigninService {
             log.warn("查询签到任务状态失败：{}", e.getMessage());
             return null;
         }
-    }
-
-    /**
-     * HTTP 快速路径的实现构造集中在这里，避免在多处重复拼装 Cookie 与 User-Agent。
-     */
-    private HttpGrowthApi newHttpApi(List<StoredCookie> cookies, AuthMeta meta) {
-        return new HttpGrowthApi(properties, new CookieJar(cookies),
-                ObjectUtil.isNotNull(meta) ? meta.getUserAgent() : null, objectMapper);
-    }
-
-    private PlaywrightGrowthApi newPlaywrightApi(BrowserSession session) {
-        return new PlaywrightGrowthApi(session, objectMapper,
-                properties.getApi().getBaseUrl());
     }
 }

@@ -3,9 +3,13 @@ package com.hesihai.fuckhwcloudgrow.notify;
 import cn.hutool.core.util.ObjectUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.core.util.URLUtil;
+import com.hesihai.fuckhwcloudgrow.auth.CredentialStatus;
 import com.hesihai.fuckhwcloudgrow.config.HwcloudGrowProperties;
 import com.hesihai.fuckhwcloudgrow.model.SigninResult;
 import com.hesihai.fuckhwcloudgrow.model.SigninStatus;
+import com.hesihai.fuckhwcloudgrow.model.task.TaskBatchResult;
+import com.hesihai.fuckhwcloudgrow.model.task.TaskResult;
+import com.hesihai.fuckhwcloudgrow.model.task.TaskStatus;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -18,12 +22,13 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 通过 Xizhi 推送签到事件。推送失败只记录日志，不影响签到主流程。
+ * 通过 Xizhi 推送任务事件与汇总。推送失败只记录日志，不影响任务主流程。
  */
 @Slf4j
 @Component
@@ -97,6 +102,77 @@ public class XizhiNotifier {
                 + "\n" + target
                 + "\n请在 " + Math.max(1, wait.toMinutes()) + " 分钟内完成，超时将失败。";
         send("华为云签到需要人工验证", content);
+    }
+
+    /**
+     * 推送整批任务的汇总结果（一条消息）。
+     *
+     * @param batch 批次结果，为 null 时跳过
+     */
+    public void dailySummary(TaskBatchResult batch) {
+        if (ObjectUtil.isNull(batch) || ObjectUtil.isNull(batch.getBatchId())
+                || !markSent(batch.getBatchId() + ":summary")) {
+            return;
+        }
+        send(buildSummaryTitle(batch), buildSummaryContent(batch));
+    }
+
+    static String buildSummaryTitle(TaskBatchResult batch) {
+        List<TaskResult> tasks = batch.getTasks() == null ? List.of() : batch.getTasks();
+        if (tasks.isEmpty()) {
+            return "华为云每日任务：无启用任务";
+        }
+        long done = tasks.stream()
+                .filter(task -> task.getStatus() != null && task.getStatus().isSuccess())
+                .count();
+        return "华为云每日任务 " + done + "/" + tasks.size() + " 完成";
+    }
+
+    static String buildSummaryContent(TaskBatchResult batch) {
+        StringBuilder content = new StringBuilder();
+        CredentialStatus credential = batch.getCredential();
+        if (ObjectUtil.isNotNull(credential) && !credential.valid()) {
+            content.append("登录态：")
+                    .append(truncate(credential.getMessage(), 60))
+                    .append('\n');
+        }
+        List<TaskResult> tasks = batch.getTasks() == null ? List.of() : batch.getTasks();
+        for (TaskResult task : tasks) {
+            content.append(StrUtil.blankToDefault(task.getDisplayName(), task.getTaskKey()))
+                    .append("：")
+                    .append(describe(task))
+                    .append('\n');
+        }
+        if (ObjectUtil.isNotNull(batch.getTotalPoints())) {
+            content.append("积分：").append(batch.getTotalPoints()).append('\n');
+        }
+        content.append("时间：").append(TIME_FORMAT.format(ObjectUtil.defaultIfNull(
+                batch.getFinishedAt(), Instant.now())));
+        return truncate(content.toString(), 480);
+    }
+
+    private static String describe(TaskResult result) {
+        TaskStatus status = result.getStatus() == null ? TaskStatus.FAILED : result.getStatus();
+        String detail = truncate(result.getMessage(), 32);
+        return switch (status) {
+            case SUCCESS -> "成功" + pointsSuffix(result);
+            case ALREADY_DONE -> "今日已完成";
+            case PARTIAL -> "已完成（待登记）";
+            case NEED_HUMAN -> "需人工" + (StrUtil.isBlank(detail) ? "" : "（" + detail + "）");
+            case SKIPPED -> "未执行";
+            case FAILED -> "失败" + (StrUtil.isBlank(detail) ? "" : "（" + detail + "）");
+        };
+    }
+
+    private static String pointsSuffix(TaskResult result) {
+        if (ObjectUtil.isNotNull(result.getPointsDelta())) {
+            int delta = result.getPointsDelta();
+            return "（" + (delta >= 0 ? "+" : "") + delta + "）";
+        }
+        if (ObjectUtil.isNotNull(result.getPoints())) {
+            return "（" + result.getPoints() + " 分）";
+        }
+        return "";
     }
 
     /**

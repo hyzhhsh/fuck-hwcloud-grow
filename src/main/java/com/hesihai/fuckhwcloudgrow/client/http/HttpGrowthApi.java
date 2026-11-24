@@ -25,7 +25,7 @@ import java.time.Duration;
 import java.util.Map;
 
 /**
- * 使用持久化 Cookie 直接调用华为云接口（HTTP 快速路径）。
+ * 使用持久化 Cookie 直接调用华为云接口。
  *
  * <p>只负责 RestClient 传输、请求头以及网络/5xx 重试；业务错误分类和响应解析
  * 由 {@link AbstractGrowthApi} 统一处理。</p>

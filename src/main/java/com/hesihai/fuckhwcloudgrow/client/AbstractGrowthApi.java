@@ -9,6 +9,7 @@ import com.hesihai.fuckhwcloudgrow.client.dto.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpMethod;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,8 +17,7 @@ import java.util.Map;
 /**
  * GrowthApi 的模板实现：统一业务方法、错误分类与响应信封解析。
  *
- * <p>HTTP 与 Playwright 两个实现只提供底层传输能力（{@link #executeRaw}），
- * 这样签到业务逻辑只维护一份，避免两套实现行为漂移。</p>
+ * <p>子类只提供底层传输能力（{@link #executeRaw}），业务方法在这里统一维护。</p>
  */
 @Slf4j
 public abstract class AbstractGrowthApi implements GrowthApi {
@@ -103,6 +103,26 @@ public abstract class AbstractGrowthApi implements GrowthApi {
     public BeansInfoResponse getBeans() {
         UserInfoResponse user = getUserInfo();
         return new BeansInfoResponse(ObjectUtil.isNull(user) ? null : user.getTotalPoints());
+    }
+
+    @Override
+    public List<TaskListResponse.TaskRecord> listTasks() {
+        List<TaskListResponse.TaskRecord> all = new ArrayList<>();
+        for (int pageNo = 1; pageNo <= TASK_MAX_PAGES; pageNo++) {
+            ResponseData data = executeRaw(HttpMethod.POST, HuaweiUrls.USER_TASKS_PATH,
+                    taskQueryBody(pageNo));
+            ResponseClassifier.throwIfError(data.status(), data.contentType(), data.body());
+            TaskListResponse tasks = readData(data.body(), TaskListResponse.class);
+            if (ObjectUtil.isNull(tasks) || ObjectUtil.isEmpty(tasks.getRecords())) {
+                break;
+            }
+            all.addAll(tasks.getRecords());
+            Integer pages = tasks.getPages();
+            if (ObjectUtil.isNull(pages) || pageNo >= pages) {
+                break;
+            }
+        }
+        return all;
     }
 
     @Override

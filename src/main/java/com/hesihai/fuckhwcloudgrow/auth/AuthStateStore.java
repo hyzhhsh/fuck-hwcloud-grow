@@ -16,7 +16,7 @@ import java.util.List;
 /**
  * 登录态持久化：读取 Playwright storageState 中的 Cookie，保存 storageState 与账号元数据。
  *
- * <p>storageState 由浏览器导出为 JSON 字符串后原样落盘，避免丢掉 origins 等签到不需要、
+ * <p>storageState 由浏览器导出为 JSON 字符串后原样落盘，避免丢掉 origins 等任务不需要、
  * 但后续复用浏览器会话时有用的字段；元数据单独保存，供 HTTP 快速路径复用 User-Agent。</p>
  */
 @Slf4j
@@ -91,8 +91,8 @@ public class AuthStateStore {
     /**
      * 保存浏览器导出的 storageState 与登录元数据。
      *
-     * <p>保存失败只记日志不抛出：此时签到结果已经产生，登录态下次登录可重新获取，
-     * 抛出会让一次成功的签到整体失败，得不偿失。</p>
+     * <p>保存失败只记日志不抛出：此时任务结果已经产生，登录态下次登录可重新获取，
+     * 抛出会让一次成功的任务整体失败，得不偿失。</p>
      */
     public void save(String storageStateJson, AuthMeta meta) {
         ensureDirectories();
