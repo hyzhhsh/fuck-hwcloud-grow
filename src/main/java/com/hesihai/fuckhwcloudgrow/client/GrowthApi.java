@@ -1,9 +1,9 @@
 package com.hesihai.fuckhwcloudgrow.client;
 
 import com.hesihai.fuckhwcloudgrow.client.dto.BeansInfoResponse;
-import com.hesihai.fuckhwcloudgrow.client.dto.MemberInfoResponse;
 import com.hesihai.fuckhwcloudgrow.client.dto.SignStatusResponse;
 import com.hesihai.fuckhwcloudgrow.client.dto.SignSubmitOutcome;
+import com.hesihai.fuckhwcloudgrow.client.dto.UserInfoResponse;
 
 /**
  * 成长中心签到接口的抽象。
@@ -13,37 +13,36 @@ import com.hesihai.fuckhwcloudgrow.client.dto.SignSubmitOutcome;
 public interface GrowthApi extends AutoCloseable {
 
     /**
-     * 查询个人资料。
+     * 查询当前登录用户信息，同时用于验证登录态。
      *
-     * @return 个人资料，接口失败时抛出 {@link GrowthApiException}
+     * @return 用户信息，接口失败时抛出 {@link GrowthApiException}
      * @throws GrowthApiException 接口调用失败或返回业务错误
      */
-    MemberInfoResponse getMemberInfo();
+    UserInfoResponse getUserInfo();
 
     /**
-     * 查询签到状态。
+     * 查询每日签到状态。
      *
-     * @return 签到状态，接口失败时抛出 {@link GrowthApiException}
+     * @return 签到状态；未找到每日签到任务时返回 null，表示状态未知
      * @throws GrowthApiException 接口调用失败或返回业务错误
      */
     SignStatusResponse getSignStatus();
 
     /**
-     * 查询成长值。
+     * 查询积分余额。
      *
-     * @return 成长值余额，接口失败时抛出 {@link GrowthApiException}
+     * @return 积分余额，接口失败时抛出 {@link GrowthApiException}
      * @throws GrowthApiException 接口调用失败或返回业务错误
      */
     BeansInfoResponse getBeans();
 
     /**
-     * 提交签到。
+     * 提交每日签到。
      *
-     * @param accountName 账号名，随请求提交给厂商
-     * @return 提交结果，由调用方按 success/alreadySigned 分支处理
+     * @return 提交结果，由调用方结合积分变化判断是本次成功还是今日已签到
      * @throws GrowthApiException 接口调用失败或返回业务错误
      */
-    SignSubmitOutcome submitSign(String accountName);
+    SignSubmitOutcome submitSign();
 
     /**
      * 返回实现通道标识。

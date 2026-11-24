@@ -15,9 +15,9 @@ public class SignSubmitOutcome {
      */
     private boolean success;
     /**
-     * 是否返回“今日已签到”。
+     * 接口返回的今日签到状态：true 表示调用后今日已签到（可能是本次，也可能是之前）。
      */
-    private boolean alreadySigned;
+    private boolean signed;
     /**
      * 厂商返回的业务错误码。
      */
@@ -26,6 +26,14 @@ public class SignSubmitOutcome {
      * 厂商返回的错误信息。
      */
     private String vendorMessage;
+    /**
+     * 本次签到获得的积分，已签到时可能为 null。
+     */
+    private Integer points;
+    /**
+     * 签到后的积分余额。
+     */
+    private Integer totalPoints;
     /**
      * 原始响应体，保留用于诊断。
      */

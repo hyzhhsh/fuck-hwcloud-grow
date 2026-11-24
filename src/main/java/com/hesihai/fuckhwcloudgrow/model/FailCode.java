@@ -21,10 +21,6 @@ public enum FailCode {
      */
     NETWORK,
     /**
-     * 签到人数较多被限流，可退避重试。
-     */
-    SIGN_BUSY,
-    /**
      * 账号密码错误或账号被锁定。
      */
     CREDENTIAL_INVALID,

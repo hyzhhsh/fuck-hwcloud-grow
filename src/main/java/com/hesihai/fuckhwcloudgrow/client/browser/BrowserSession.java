@@ -175,7 +175,7 @@ public class BrowserSession implements AutoCloseable {
     /**
      * 获取当前“活动”页面。
      *
-     * <p>优先级：成长中心页 &gt; 认证页 &gt; 任意页面 &gt; 新建页面。
+     * <p>优先级：成长中心新站点 &gt; 其他开发者站点 &gt; 认证页 &gt; 任意页面 &gt; 新建页面。
      * 登录流程优先复用已打开的成长中心页，其次才是认证页，
      * 避免在无关页面上执行签到操作。</p>
      *
@@ -183,6 +183,12 @@ public class BrowserSession implements AutoCloseable {
      */
     public Page activePage() {
         List<Page> pages = context.pages();
+        for (Page page : pages) {
+            String url = page.url();
+            if (StrUtil.isNotBlank(url) && url.contains(HuaweiUrls.GROW_HOST)) {
+                return page;
+            }
+        }
         for (Page page : pages) {
             String url = page.url();
             if (StrUtil.isNotBlank(url) && url.contains(HuaweiUrls.DEVELOPER_DOMAIN)) {

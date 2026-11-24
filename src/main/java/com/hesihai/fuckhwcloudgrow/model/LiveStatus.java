@@ -27,14 +27,6 @@ public class LiveStatus {
      */
     private boolean signedToday;
     /**
-     * 连续签到天数。
-     */
-    private Integer continuityCount;
-    /**
-     * 上次签到时间（厂商格式字符串）。
-     */
-    private String lastSignTime;
-    /**
      * 当前成长值。
      */
     private Integer beans;

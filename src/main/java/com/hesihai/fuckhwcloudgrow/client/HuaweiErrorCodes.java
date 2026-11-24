@@ -1,38 +1,38 @@
 package com.hesihai.fuckhwcloudgrow.client;
 
 /**
- * 华为云接口中已确认的业务错误码。
+ * 华为云成长中心接口中已确认的业务错误码。
  */
 public final class HuaweiErrorCodes {
 
     /**
-     * 登录态失效，需重新登录。
-     */
-    public static final String LOGIN_EXPIRED = "92212002";
-    /**
      * 操作成功。
      */
-    public static final String SUCCESS = "HD.00000000";
+    public static final String SUCCESS = "0";
     /**
-     * 操作成功（另一接口族使用的等价码）。
+     * 未登录或登录已过期，需重新登录。
      */
-    public static final String SUCCESS_ALT = "HD.67500000";
+    public static final String LOGIN_EXPIRED = "10001";
     /**
-     * 今日已签到。
+     * 当前用户不在成长中心用户体系中。
      */
-    public static final String ALREADY_SIGNED = "HD.67520093";
+    public static final String USER_NOT_EXISTS = "10003";
     /**
-     * 当前签到人数较多，稍后可重试。
+     * 账号未完成实名认证。
      */
-    public static final String SIGN_BUSY = "HD.67520109";
+    public static final String REALNAME_REQUIRED = "20020";
     /**
-     * 账号异常，暂不支持此操作。
+     * 同一实名认证下已有其他参与账号。
      */
-    public static final String ACCOUNT_ABNORMAL = "HD.67520011";
+    public static final String NOT_FIRST_NATURAL_PERSON = "20021";
     /**
-     * 账号异常（另一接口族使用的等价码）。
+     * 参与账号认定相关的其余错误码。
      */
-    public static final String ACCOUNT_ABNORMAL_ALT = "HD.35011005";
+    public static final String NATURAL_PERSON_SELECTION_REQUIRED = "20023";
+    /**
+     * 系统错误，可稍后重试。
+     */
+    public static final String SYSTEM_ERROR = "40004";
 
     private HuaweiErrorCodes() {
     }

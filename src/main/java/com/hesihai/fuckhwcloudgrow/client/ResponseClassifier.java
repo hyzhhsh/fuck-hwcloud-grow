@@ -20,7 +20,13 @@ public final class ResponseClassifier {
      * 按优先级遍历的厂商错误信息字段。
      */
     private static final List<String> ERROR_MESSAGE_FIELDS =
-            List.of("error_msg", "errorMsg", "message", "msg");
+            List.of("message", "msg", "error_msg", "errorMsg");
+
+    /**
+     * 同实名多账号认定相关的错误码，统一给出“请到页面手动处理”的指引。
+     */
+    private static final List<String> NATURAL_PERSON_BINDING_CODES =
+            List.of("20024", "20025", "20026", "20027", "20028", "20030");
 
     private ResponseClassifier() {
     }
@@ -28,8 +34,9 @@ public final class ResponseClassifier {
     /**
      * 识别响应中的错误并按需抛出异常；判定顺序即优先级。
      *
-     * <p>业务错误码优先；之后依次判断 404 路由未匹配（登录态失效的隐性特征）、401/403、
-     * 429 限流、5xx 服务端错误、HTML 页面（WAF 拦截），最后才是其余 4xx。</p>
+     * <p>新接口统一返回 {@code {"code":0,"message":"...","data":...}}，
+     * 业务错误码优先；之后依次判断 404 路由未匹配、401/403、429 限流、
+     * 5xx 服务端错误、HTML 页面（WAF 拦截），最后才是其余 4xx。</p>
      *
      * @param status      HTTP 状态码
      * @param contentType 响应 Content-Type
@@ -42,23 +49,31 @@ public final class ResponseClassifier {
         if (StrUtil.isNotBlank(code)) {
             switch (code) {
                 case HuaweiErrorCodes.LOGIN_EXPIRED -> throw GrowthApiException.sessionExpired("华为云登录态已失效");
-                case HuaweiErrorCodes.ALREADY_SIGNED -> {
-                    return;
+                case HuaweiErrorCodes.USER_NOT_EXISTS -> throw GrowthApiException.accountAbnormal(code,
+                        "当前账号不在成长中心用户体系中，请确认登录账号（" + code + "）");
+                case HuaweiErrorCodes.REALNAME_REQUIRED -> throw GrowthApiException.accountAbnormal(code,
+                        "账号未完成实名认证，请先在华为云账号中心完成实名认证后重试（" + code + "）");
+                case HuaweiErrorCodes.NOT_FIRST_NATURAL_PERSON -> throw GrowthApiException.accountAbnormal(code,
+                        "同一实名认证下已有其他参与账号，当前账号无法参与；请前往成长中心手动处理（"
+                                + code + "）");
+                case HuaweiErrorCodes.NATURAL_PERSON_SELECTION_REQUIRED ->
+                        throw GrowthApiException.accountAbnormal(code,
+                                "同实名认证下有多个账号，需先选择参与账号；请前往成长中心手动选择（"
+                                        + code + "）");
+                case HuaweiErrorCodes.SYSTEM_ERROR -> throw new GrowthApiException(FailCode.UNKNOWN,
+                        "华为云服务繁忙，请稍后重试（" + code + "）", code, true, body);
+                default -> {
+                    if (NATURAL_PERSON_BINDING_CODES.contains(code)) {
+                        throw GrowthApiException.accountAbnormal(code,
+                                StrUtil.blankToDefault(message, "参与账号认定未完成")
+                                        + "（" + code + "），请前往成长中心手动处理");
+                    }
+                    throw new GrowthApiException(FailCode.UNKNOWN,
+                            StrUtil.isBlank(message)
+                                    ? "华为云返回错误 " + code
+                                    : "华为云返回错误 " + code + "：" + message,
+                            code, false, body);
                 }
-                case HuaweiErrorCodes.SIGN_BUSY -> throw GrowthApiException.signBusy("当前签到人数较多，请稍后重试");
-                case HuaweiErrorCodes.ACCOUNT_ABNORMAL, HuaweiErrorCodes.ACCOUNT_ABNORMAL_ALT ->
-                        throw GrowthApiException.accountAbnormal(code, "华为云账号异常，暂不支持此操作");
-                case HuaweiErrorCodes.SUCCESS, HuaweiErrorCodes.SUCCESS_ALT -> {
-                    return;
-                }
-                default -> throw new GrowthApiException(
-                        FailCode.UNKNOWN,
-                        StrUtil.isBlank(message)
-                                ? "华为云返回错误 " + code
-                                : "华为云返回错误 " + code + "：" + message,
-                        code,
-                        false,
-                        body);
             }
         }
 
@@ -90,11 +105,20 @@ public final class ResponseClassifier {
     }
 
     /**
-     * 兼容 error_code / errorCode 两种字段命名。
+     * 解析新信封的 code 字段：0 视为成功返回 null，非 0 返回字符串。
+     * 同时兼容旧的 error_code / errorCode 字段。
      */
     public static String extractErrorCode(String body) {
         JSONObject node = parse(body);
         if (ObjectUtil.isNull(node)) {
+            return null;
+        }
+        Object rawCode = node.get("code");
+        if (ObjectUtil.isNotNull(rawCode)) {
+            String code = String.valueOf(rawCode).trim();
+            if (!"null".equalsIgnoreCase(code) && !"0".equals(code)) {
+                return code;
+            }
             return null;
         }
         String code = node.getStr("error_code");
@@ -102,7 +126,7 @@ public final class ResponseClassifier {
     }
 
     /**
-     * 兼容 error_msg / errorMsg / message / msg 四种错误信息字段。
+     * 兼容 message / msg / error_msg / errorMsg 四种错误信息字段。
      */
     public static String extractErrorMessage(String body) {
         JSONObject node = parse(body);
@@ -119,9 +143,7 @@ public final class ResponseClassifier {
     }
 
     public static boolean isSuccessCode(String code) {
-        return StrUtil.isBlank(code)
-                || HuaweiErrorCodes.SUCCESS.equals(code)
-                || HuaweiErrorCodes.SUCCESS_ALT.equals(code);
+        return StrUtil.isBlank(code) || HuaweiErrorCodes.SUCCESS.equals(code);
     }
 
     /**
@@ -135,7 +157,7 @@ public final class ResponseClassifier {
     }
 
     public static boolean isNotLoginBody(String body) {
-        return StrUtil.containsAnyIgnoreCase(body, "not login", "login expired");
+        return StrUtil.containsAnyIgnoreCase(body, "not login", "login expired", "未登录");
     }
 
     /**

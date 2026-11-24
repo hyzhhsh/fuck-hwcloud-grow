@@ -2,6 +2,8 @@ package com.hesihai.fuckhwcloudgrow.login;
 
 import cn.hutool.core.util.ObjectUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 import com.hesihai.fuckhwcloudgrow.client.HuaweiUrls;
 import com.hesihai.fuckhwcloudgrow.client.browser.BrowserSession;
 import com.hesihai.fuckhwcloudgrow.config.HwcloudGrowProperties;
@@ -167,12 +169,18 @@ final class LoginDetector {
     }
 
     /**
-     * 用个人资料接口判断登录态；status=0 表示探测失败，交由页面文案兜底。
+     * 用用户信息接口判断登录态；status=0 表示探测失败，交由页面文案兜底。
      */
     private Boolean isLoggedInByApi(Page page) {
-        LoginApiProbe.ProbeResult probe = LoginApiProbe.fetchPersonalInfo(page);
+        LoginApiProbe.ProbeResult probe = LoginApiProbe.fetchUserInfo(
+                page, properties.getApi().getBaseUrl());
         if (probe.status() == 200) {
-            return probe.body().contains("\"memAlias\":\"");
+            try {
+                JSONObject json = JSONUtil.parseObj(probe.body());
+                return ObjectUtil.equal(json.getInt("code"), 0);
+            } catch (Exception e) {
+                return null;
+            }
         }
         if (probe.status() == 401 || probe.status() == 403 || probe.status() == 404) {
             return false;

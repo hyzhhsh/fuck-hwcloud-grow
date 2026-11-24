@@ -3,77 +3,95 @@ package com.hesihai.fuckhwcloudgrow.client;
 import cn.hutool.core.util.ObjectUtil;
 import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hesihai.fuckhwcloudgrow.client.dto.BeansInfoResponse;
-import com.hesihai.fuckhwcloudgrow.client.dto.MemberInfoResponse;
-import com.hesihai.fuckhwcloudgrow.client.dto.SignStatusResponse;
-import com.hesihai.fuckhwcloudgrow.client.dto.SignSubmitOutcome;
+import com.hesihai.fuckhwcloudgrow.client.dto.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpMethod;
 
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
- * GrowthApi 的模板实现：统一业务方法、csrf 获取/失效重试、错误分类与 JSON 解析。
+ * GrowthApi 的模板实现：统一业务方法、错误分类与响应信封解析。
  *
- * <p>HTTP 与 Playwright 两个实现只提供底层传输能力（{@link #executeRaw}）以及 csrf 的兜底方式，
+ * <p>HTTP 与 Playwright 两个实现只提供底层传输能力（{@link #executeRaw}），
  * 这样签到业务逻辑只维护一份，避免两套实现行为漂移。</p>
  */
 @Slf4j
 public abstract class AbstractGrowthApi implements GrowthApi {
 
+    /**
+     * 任务列表每页条数，与前端保持一致。
+     */
+    private static final int TASK_PAGE_SIZE = 100;
+    /**
+     * 查找每日签到任务时最多翻页数，避免异常数据导致无限请求。
+     */
+    private static final int TASK_MAX_PAGES = 5;
+
     private final ObjectMapper objectMapper;
     private final String source;
-    private String csrf;
 
     protected AbstractGrowthApi(ObjectMapper objectMapper, String source) {
         this.objectMapper = objectMapper;
         this.source = source;
     }
 
+    /**
+     * 构造任务列表查询请求体，与前端调用保持一致。
+     */
+    private static Map<String, Object> taskQueryBody(int pageNo) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("biz_type", "opc");
+        body.put("show", true);
+        body.put("page_no", pageNo);
+        body.put("page_size", TASK_PAGE_SIZE);
+        return body;
+    }
+
+    /**
+     * 在任务列表中定位每日签到任务，is_finish 即为今日签到状态。
+     */
+    private static SignStatusResponse findDailySignStatus(List<TaskListResponse.TaskRecord> records) {
+        for (TaskListResponse.TaskRecord record : records) {
+            if (ObjectUtil.equals(HuaweiUrls.DAILY_SIGN_TASK_TAG, record.getTaskTag())) {
+                SignStatusResponse status = new SignStatusResponse();
+                status.setSignFlag(Boolean.TRUE.equals(record.getIsFinish()) ? 1 : 0);
+                return status;
+            }
+        }
+        return null;
+    }
+
     @Override
-    public MemberInfoResponse getMemberInfo() {
-        ResponseData data = executeWithCsrf(HttpMethod.GET, HuaweiUrls.PERSONAL_INFO_PATH, null);
+    public UserInfoResponse getUserInfo() {
+        ResponseData data = executeRaw(HttpMethod.GET, HuaweiUrls.USER_INFO_PATH, null);
         ResponseClassifier.throwIfError(data.status(), data.contentType(), data.body());
-        return readJson(data.body(), MemberInfoResponse.class);
+        return readData(data.body(), UserInfoResponse.class);
     }
 
     @Override
     public SignStatusResponse getSignStatus() {
-        ResponseData data = executeWithCsrf(HttpMethod.GET, HuaweiUrls.SIGN_PATH, null);
-        ResponseClassifier.throwIfError(data.status(), data.contentType(), data.body());
-        return readJson(data.body(), SignStatusResponse.class);
-    }
-
-    @Override
-    public BeansInfoResponse getBeans() {
-        ResponseData data = executeWithCsrf(HttpMethod.GET, HuaweiUrls.BEANS_PATH, null);
-        ResponseClassifier.throwIfError(data.status(), data.contentType(), data.body());
-        return readJson(data.body(), BeansInfoResponse.class);
-    }
-
-    @Override
-    public SignSubmitOutcome submitSign(String accountName) {
-        Map<String, Object> body = Map.of("account_name", accountName);
-        ResponseData data = executeWithCsrf(HttpMethod.POST, HuaweiUrls.SIGN_PATH, body);
-        String code = ResponseClassifier.extractErrorCode(data.body());
-        // 厂商把“今天已签到”作为业务错误码返回，这里转换成正常的已签到结果
-        if (HuaweiErrorCodes.ALREADY_SIGNED.equals(code)) {
-            return SignSubmitOutcome.builder()
-                    .success(true)
-                    .alreadySigned(true)
-                    .vendorCode(code)
-                    .rawBody(data.body())
-                    .build();
+        for (int pageNo = 1; pageNo <= TASK_MAX_PAGES; pageNo++) {
+            ResponseData data = executeRaw(HttpMethod.POST, HuaweiUrls.USER_TASKS_PATH,
+                    taskQueryBody(pageNo));
+            ResponseClassifier.throwIfError(data.status(), data.contentType(), data.body());
+            TaskListResponse tasks = readData(data.body(), TaskListResponse.class);
+            if (ObjectUtil.isNull(tasks) || ObjectUtil.isEmpty(tasks.getRecords())) {
+                return null;
+            }
+            SignStatusResponse status = findDailySignStatus(tasks.getRecords());
+            if (ObjectUtil.isNotNull(status)) {
+                return status;
+            }
+            Integer pages = tasks.getPages();
+            if (ObjectUtil.isNull(pages) || pageNo >= pages) {
+                return null;
+            }
         }
-        ResponseClassifier.throwIfError(data.status(), data.contentType(), data.body());
-        return SignSubmitOutcome.builder()
-                .success(true)
-                .alreadySigned(false)
-                .vendorCode(code)
-                .vendorMessage(ResponseClassifier.extractErrorMessage(data.body()))
-                .rawBody(data.body())
-                .build();
+        return null;
     }
 
     @Override
@@ -81,88 +99,69 @@ public abstract class AbstractGrowthApi implements GrowthApi {
         return source;
     }
 
-    /**
-     * 发送需要 csrf 的请求；csrf 失效时清空缓存并重试一次。
-     */
-    protected ResponseData executeWithCsrf(HttpMethod method, String path, Object body) {
-        ResponseData data = executeRaw(method, path, body, true);
-        if (isCsrfFailure(data)) {
-            log.debug("csrf 校验失败，刷新后重试 {} {}", method, path);
-            csrf = null;
-            getCsrf();
-            // 只重试一次：第二次仍失效说明不是 token 过期问题，交给错误分类处理，避免死循环
-            data = executeRaw(method, path, body, true);
-        }
-        return data;
+    @Override
+    public BeansInfoResponse getBeans() {
+        UserInfoResponse user = getUserInfo();
+        return new BeansInfoResponse(ObjectUtil.isNull(user) ? null : user.getTotalPoints());
     }
 
-    /**
-     * 获取并缓存 csrf token；401/403 或未登录响应会转换成登录态失效。
-     */
-    protected String getCsrf() {
-        if (StrUtil.isNotBlank(csrf)) {
-            return csrf;
-        }
-        ResponseData data = executeRaw(HttpMethod.GET, HuaweiUrls.CSRF_PATH, null, false);
-        // 401/403 或未登录文案说明登录态已失效，此时不必再解析 token，直接抛给上层降级
-        if (data.status() == 401 || data.status() == 403
-                || ResponseClassifier.isNotLoginBody(data.body())) {
-            throw GrowthApiException.sessionExpired("获取 csrf 时发现华为云登录态已失效");
+    @Override
+    public SignSubmitOutcome submitSign() {
+        ResponseData data = executeRaw(HttpMethod.POST, HuaweiUrls.SIGN_IN_PATH, null);
+        String code = ResponseClassifier.extractErrorCode(data.body());
+        String message = ResponseClassifier.extractErrorMessage(data.body());
+        // 兼容厂商把“已签到”作为业务错误码返回的情况
+        if (StrUtil.isNotBlank(code) && StrUtil.contains(message, "已签到")) {
+            return SignSubmitOutcome.builder()
+                    .success(true)
+                    .signed(true)
+                    .vendorCode(code)
+                    .vendorMessage(message)
+                    .rawBody(data.body())
+                    .build();
         }
         ResponseClassifier.throwIfError(data.status(), data.contentType(), data.body());
-        String token = csrfTokenFrom(data);
-        if (StrUtil.isBlank(token)) {
-            throw GrowthApiException.sessionExpired("未获取到 csrf，华为云登录态可能已失效");
-        }
-        csrf = token;
-        return csrf;
+
+        SignInResponse response = readData(data.body(), SignInResponse.class);
+        return SignSubmitOutcome.builder()
+                .success(true)
+                .signed(ObjectUtil.isNotNull(response) && Boolean.TRUE.equals(response.getSigned()))
+                .points(ObjectUtil.isNull(response) ? null : response.getPoints())
+                .totalPoints(ObjectUtil.isNull(response) ? null : response.getTotalPoints())
+                .vendorCode(code)
+                .vendorMessage(message)
+                .rawBody(data.body())
+                .build();
     }
 
     /**
-     * 子类可覆盖：例如页面内 fetch 拿不到 csrf 时，改用 context.request 再试一次。
+     * 解析统一信封 {@code {"code":0,"data":...}} 中的 data 部分。
      */
-    protected String csrfTokenFrom(ResponseData data) {
-        if (StrUtil.isNotBlank(data.csrf())) {
-            return data.csrf();
-        }
-        return data.header("csrf");
-    }
-
-    /**
-     * 供子类在请求头中复用当前 csrf。
-     */
-    protected String csrfToken() {
-        return getCsrf();
-    }
-
-    /**
-     * csrf 失效的特征：响应体提到 csrf，但没有业务错误码，也不是未登录。
-     */
-    protected boolean isCsrfFailure(ResponseData data) {
-        return ResponseClassifier.extractErrorCode(data.body()) == null
-                && !ResponseClassifier.isNotLoginBody(data.body())
-                && StrUtil.containsIgnoreCase(data.body(), "csrf");
-    }
-
-    /**
-     * 统一空响应与非 JSON 响应的分类，两者都按 WAF 拦截处理。
-     */
-    protected <T> T readJson(String body, Class<T> type) {
+    protected <T> T readData(String body, Class<T> type) {
         if (StrUtil.isBlank(body)) {
             throw GrowthApiException.wafBlocked("接口响应为空", body);
         }
+        JsonNode root;
         try {
-            return objectMapper.readValue(body, type);
+            root = objectMapper.readTree(body);
         } catch (JsonProcessingException e) {
             throw GrowthApiException.wafBlocked("接口响应不是合法 JSON，可能被 WAF 拦截", body);
+        }
+        JsonNode data = root.get("data");
+        if (ObjectUtil.isNull(data) || data.isNull()) {
+            return null;
+        }
+        try {
+            return objectMapper.treeToValue(data, type);
+        } catch (JsonProcessingException e) {
+            throw GrowthApiException.wafBlocked("接口 data 结构无法解析", body);
         }
     }
 
     /**
-     * 子类实现真正的传输并返回统一响应；不需要处理 csrf 重试。
+     * 子类实现真正的传输并返回统一响应。
      */
-    protected abstract ResponseData executeRaw(HttpMethod method, String path,
-                                               Object body, boolean withCsrf);
+    protected abstract ResponseData executeRaw(HttpMethod method, String path, Object body);
 
     /**
      * 统一 HTTP 与页面 fetch 的响应载体，屏蔽两套 header 结构。
@@ -189,10 +188,6 @@ public abstract class AbstractGrowthApi implements GrowthApi {
 
         public String contentType() {
             return header("content-type");
-        }
-
-        public String csrf() {
-            return header("csrf");
         }
 
         /**

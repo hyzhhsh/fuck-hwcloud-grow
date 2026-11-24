@@ -101,16 +101,6 @@ public class GrowthApiException extends RuntimeException {
     }
 
     /**
-     * 签到人数较多异常。
-     *
-     * @param message 描述
-     * @return 分类为 {@link FailCode#SIGN_BUSY} 的可重试异常
-     */
-    public static GrowthApiException signBusy(String message) {
-        return new GrowthApiException(FailCode.SIGN_BUSY, message, null, true, null);
-    }
-
-    /**
      * 账号异常异常。
      *
      * @param vendorCode 厂商错误码

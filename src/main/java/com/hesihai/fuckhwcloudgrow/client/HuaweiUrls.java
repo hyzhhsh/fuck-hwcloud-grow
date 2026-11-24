@@ -9,24 +9,27 @@ import java.nio.charset.StandardCharsets;
 public final class HuaweiUrls {
 
     /**
+     * 成长中心站点源（Origin），用于请求头与登录 service 参数。
+     */
+    public static final String GROW_ORIGIN = "https://grow.developer.huaweicloud.com";
+    /**
      * 成长中心首页。
      */
-    public static final String GROW_URL = "https://developer.huaweicloud.com/grow";
+    public static final String GROW_URL = GROW_ORIGIN + "/";
     /**
-     * 成长中心站点源（Origin），用于请求头。
+     * 成长中心主机名（不含协议），用于判断页面是否处于签到的同源站点。
      */
-    public static final String GROW_ORIGIN = "https://developer.huaweicloud.com";
-    // URLUtil.encode 会保留 :// 等 URL 安全字符，这里作为 query 参数值需要完整编码
+    public static final String GROW_HOST = "grow.developer.huaweicloud.com";
     /**
      * 登录页地址，service 参数指回成长中心。
      */
-    public static final String LOGIN_URL = "https://auth.huaweicloud.com/authui/login?service="
-            + URLEncoder.encode(GROW_URL, StandardCharsets.UTF_8)
+    public static final String LOGIN_URL = "https://auth.huaweicloud.com/authui/login.html?service="
+            + URLEncoder.encode(GROW_ORIGIN, StandardCharsets.UTF_8)
             + "&locale=zh-cn";
     /**
      * 数据接口根地址。
      */
-    public static final String API_BASE = "https://devdata.huaweicloud.com";
+    public static final String API_BASE = "https://grow-dataset.developer.huaweicloud.com";
     /**
      * 成长中心主域（不含协议），用于页面 URL 归属判断。
      */
@@ -36,28 +39,25 @@ public final class HuaweiUrls {
      */
     public static final String AUTH_DOMAIN = "auth.huaweicloud.com";
     /**
-     * 成长中心数据接口域（不含协议），用于 Cookie 域名过滤。
+     * 成长接口统一前缀。
      */
-    public static final String DEVDATA_DOMAIN = "devdata.huaweicloud.com";
+    public static final String API_PREFIX = "/api/v1/hdgrowservice";
     /**
-     * csrf token 获取接口。
+     * 当前登录用户信息（登录探测复用）。
      */
-    public static final String CSRF_PATH = "/api/get-ainfo";
+    public static final String USER_INFO_PATH = API_PREFIX + "/user/info";
     /**
-     * 签到状态查询 / 提交签到接口。
+     * 每日签到接口。
      */
-    public static final String SIGN_PATH =
-            "/rest/developer/fwdu/rest/developer/user/hdcommunitysoservice/v1/growth/sign";
+    public static final String SIGN_IN_PATH = API_PREFIX + "/user/sign-in";
     /**
-     * 成长值查询接口。
+     * 任务列表接口，用于读取每日签到任务的完成状态。
      */
-    public static final String BEANS_PATH =
-            "/rest/developer/fwdu/rest/developer/user/hdcommunitysoservice/v1/growth/bonus-beans";
+    public static final String USER_TASKS_PATH = API_PREFIX + "/user/tasks";
     /**
-     * 个人资料查询接口。
+     * 每日签到任务的 task_tag。
      */
-    public static final String PERSONAL_INFO_PATH =
-            "/rest/developer/fwdu/rest/developer/user/hdcommunityservice/v1/member/get-personal-info";
+    public static final String DAILY_SIGN_TASK_TAG = "daily_login";
 
     private HuaweiUrls() {
     }

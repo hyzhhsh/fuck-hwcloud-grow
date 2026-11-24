@@ -12,9 +12,8 @@ import com.hesihai.fuckhwcloudgrow.client.GrowthApiException;
 import com.hesihai.fuckhwcloudgrow.client.browser.BrowserLaunchException;
 import com.hesihai.fuckhwcloudgrow.client.browser.BrowserSession;
 import com.hesihai.fuckhwcloudgrow.client.browser.PlaywrightGrowthApi;
-import com.hesihai.fuckhwcloudgrow.client.dto.BeansInfoResponse;
-import com.hesihai.fuckhwcloudgrow.client.dto.MemberInfoResponse;
 import com.hesihai.fuckhwcloudgrow.client.dto.SignStatusResponse;
+import com.hesihai.fuckhwcloudgrow.client.dto.UserInfoResponse;
 import com.hesihai.fuckhwcloudgrow.client.http.CookieJar;
 import com.hesihai.fuckhwcloudgrow.client.http.HttpGrowthApi;
 import com.hesihai.fuckhwcloudgrow.config.HwcloudGrowProperties;
@@ -134,22 +133,18 @@ public class SigninService {
         }
         AuthMeta meta = authStateStore.loadMetaFromFile();
         try (HttpGrowthApi api = newHttpApi(cookies, meta)) {
-            MemberInfoResponse member = api.getMemberInfo();
-            SignStatusResponse status = api.getSignStatus();
-            BeansInfoResponse beans = api.getBeans();
+            UserInfoResponse user = api.getUserInfo();
+            SignStatusResponse status = querySignStatusQuietly(api);
             return LiveStatus.builder()
                     .sessionValid(true)
                     .accountName(StrUtil.firstNonBlank(
-                            ObjectUtil.isNotNull(member) ? member.getMemAlias() : null,
-                            ObjectUtil.isNotNull(member) ? member.getMemName() : null))
+                            ObjectUtil.isNotNull(user) ? user.getDomainName() : null,
+                            ObjectUtil.isNotNull(user) ? user.getIamId() : null))
                     .signFlag(ObjectUtil.isNotNull(status) ? status.getSignFlag() : null)
                     .signedToday(ObjectUtil.isNotNull(status)
                             && ObjectUtil.equal(status.getSignFlag(), 1))
-                    .continuityCount(ObjectUtil.isNotNull(status)
-                            ? status.getSignContinuityCount() : null)
-                    .lastSignTime(ObjectUtil.isNotNull(status) ? status.getLastSignTime() : null)
-                    .beans(ObjectUtil.isNotNull(beans) ? beans.getBeans() : null)
-                    .message("查询成功")
+                    .beans(ObjectUtil.isNotNull(user) ? user.getTotalPoints() : null)
+                    .message(ObjectUtil.isNotNull(status) ? "查询成功" : "查询成功（签到任务状态暂不可用）")
                     .build();
         } catch (GrowthApiException e) {
             return LiveStatus.builder()
@@ -224,6 +219,21 @@ public class SigninService {
     }
 
     /**
+     * 只读查询签到任务状态；任务接口偶发失败时返回 null，不影响登录态判定。
+     */
+    private SignStatusResponse querySignStatusQuietly(HttpGrowthApi api) {
+        try {
+            return api.getSignStatus();
+        } catch (GrowthApiException e) {
+            if (e.getCode() == FailCode.SESSION_EXPIRED) {
+                throw e;
+            }
+            log.warn("查询签到任务状态失败：{}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * HTTP 快速路径的实现构造集中在这里，避免在多处重复拼装 Cookie 与 User-Agent。
      */
     private HttpGrowthApi newHttpApi(List<StoredCookie> cookies, AuthMeta meta) {
@@ -232,6 +242,7 @@ public class SigninService {
     }
 
     private PlaywrightGrowthApi newPlaywrightApi(BrowserSession session) {
-        return new PlaywrightGrowthApi(session, objectMapper);
+        return new PlaywrightGrowthApi(session, objectMapper,
+                properties.getApi().getBaseUrl());
     }
 }

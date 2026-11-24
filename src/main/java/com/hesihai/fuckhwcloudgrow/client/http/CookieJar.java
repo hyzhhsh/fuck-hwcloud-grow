@@ -4,7 +4,6 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.ObjectUtil;
 import cn.hutool.core.util.StrUtil;
 import com.hesihai.fuckhwcloudgrow.auth.StoredCookie;
-import com.hesihai.fuckhwcloudgrow.client.HuaweiUrls;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,40 +20,45 @@ public class CookieJar {
         this.cookies = List.copyOf(ObjectUtil.defaultIfNull(cookies, List.of()));
     }
 
-    static boolean isRelevantDomain(String domain) {
-        if (StrUtil.isBlank(domain)) {
+    /**
+     * 按 RFC6265 的 domain-match 规则判断 Cookie 是否可以发送给目标主机。
+     *
+     * <p>存储域带前导点时表示其子域也共享（例如 {@code .huaweicloud.com}），
+     * 不带前导点时是 host-only Cookie，只能发给完全一致的主机。</p>
+     */
+    static boolean domainMatches(String host, String domain) {
+        if (StrUtil.isBlank(host) || StrUtil.isBlank(domain)) {
             return false;
         }
-        String normalized = domain.toLowerCase(Locale.ROOT);
-        return normalized.equals(HuaweiUrls.DEVDATA_DOMAIN)
-                || normalized.equals("." + HuaweiUrls.DEVDATA_DOMAIN)
-                || normalized.equals("huaweicloud.com")
-                || normalized.equals(".huaweicloud.com");
+        String normalizedHost = host.toLowerCase(Locale.ROOT);
+        String normalizedDomain = domain.toLowerCase(Locale.ROOT);
+        boolean includeSubdomains = normalizedDomain.startsWith(".");
+        String bareDomain = includeSubdomains ? normalizedDomain.substring(1) : normalizedDomain;
+        if (StrUtil.isBlank(bareDomain)) {
+            return false;
+        }
+        return normalizedHost.equals(bareDomain)
+                || (includeSubdomains && normalizedHost.endsWith("." + bareDomain));
     }
 
     /**
-     * 是否没有任何“可用” Cookie。
-     *
-     * <p>语义是过滤后的可用 Cookie 为空，而非原始列表为空：仅含无关域名或已过期
-     * Cookie 时同样返回 true。调用方据此判定登录态失效并转入浏览器。</p>
-     *
-     * @return true 表示拼不出任何 Cookie 头
+     * 是否没有任何可以发送给目标主机的 Cookie。
      */
-    public boolean isEmpty() {
-        return StrUtil.isBlank(header());
+    public boolean isEmpty(String host) {
+        return StrUtil.isBlank(header(host));
     }
 
     /**
-     * 过滤无效名称、无关域名与已过期 Cookie，再按保存顺序拼接。
+     * 过滤无效名称、不匹配目标主机与已过期的 Cookie，再按保存顺序拼接。
      */
-    public String header() {
+    public String header(String host) {
         long nowSeconds = System.currentTimeMillis() / 1000;
         List<String> values = new ArrayList<>();
         for (StoredCookie cookie : cookies) {
             if (StrUtil.isBlank(cookie.getName()) || ObjectUtil.isNull(cookie.getValue())) {
                 continue;
             }
-            if (!isRelevantDomain(cookie.getDomain())) {
+            if (!domainMatches(host, cookie.getDomain())) {
                 continue;
             }
             Double expires = cookie.getExpires();

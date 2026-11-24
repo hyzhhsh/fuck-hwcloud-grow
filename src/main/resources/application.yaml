@@ -20,12 +20,11 @@ hwcloud:
     zone: "${GROW_ZONE:Asia/Shanghai}"
     data-dir: ${GROW_DATA_DIR:./data}
     api:
-      base-url: https://devdata.huaweicloud.com
+      base-url: https://grow-dataset.developer.huaweicloud.com
       connect-timeout: 10s
       request-timeout: 30s
       max-attempts: 3
       retry-backoff: 2s
-      sign-busy-backoff: 5s
     browser:
       headless: ${GROW_HEADLESS:false}
       channel: ${GROW_BROWSER_CHANNEL:chrome}
@@ -41,9 +40,6 @@ hwcloud:
       xizhi-base-url: https://xizhi.qqoq.net
       no-vnc-url: ${NOVNC_PUBLIC_URL:}
       timeout: 5s
-    run:
-      status-poll-attempts: 5
-      status-poll-interval: 3s
 
 logging:
   level:

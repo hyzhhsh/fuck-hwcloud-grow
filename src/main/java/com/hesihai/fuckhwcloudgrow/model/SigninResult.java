@@ -53,14 +53,6 @@ public class SigninResult {
      */
     private Integer pointsDelta;
     /**
-     * 连续签到天数。
-     */
-    private Integer continuityCount;
-    /**
-     * 上次签到时间（厂商格式字符串）。
-     */
-    private String lastSignTime;
-    /**
      * 实际完成签到的通道：HTTP 或 PLAYWRIGHT。
      */
     private String apiSource;

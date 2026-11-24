@@ -54,10 +54,6 @@ public class HwcloudGrowProperties {
      * 息知通知配置。
      */
     private Notify notify = new Notify();
-    /**
-     * 签到运行参数。
-     */
-    private Run run = new Run();
 
     /**
      * 登录态目录：显式配置 authFile 时取其父目录，否则用默认的 data/state。
@@ -129,7 +125,7 @@ public class HwcloudGrowProperties {
         /**
          * 接口根地址。
          */
-        private String baseUrl = "https://devdata.huaweicloud.com";
+        private String baseUrl = "https://grow-dataset.developer.huaweicloud.com";
         /**
          * 连接超时。
          */
@@ -146,10 +142,6 @@ public class HwcloudGrowProperties {
          * 网络/5xx 重试的基础退避间隔，逐次线性放大。
          */
         private Duration retryBackoff = Duration.ofSeconds(2);
-        /**
-         * 签到人数较多时的基础退避间隔，实际等待取 1~3 倍随机值。
-         */
-        private Duration signBusyBackoff = Duration.ofSeconds(5);
     }
 
     /**
@@ -221,22 +213,5 @@ public class HwcloudGrowProperties {
          * 推送请求超时。
          */
         private Duration timeout = Duration.ofSeconds(5);
-    }
-
-    /**
-     * 签到运行参数。
-     */
-    @Getter
-    @Setter
-    public static class Run {
-
-        /**
-         * 提交后轮询签到状态的最大次数。
-         */
-        private int statusPollAttempts = 5;
-        /**
-         * 轮询签到状态的间隔。
-         */
-        private Duration statusPollInterval = Duration.ofSeconds(3);
     }
 }

@@ -19,26 +19,22 @@ final class LoginApiProbe {
     }
 
     /**
-     * 页面内 fetch 个人资料；JS 异常或结构异常时返回 status=0。
+     * 页面内 fetch 当前用户信息；JS 异常或结构异常时返回 status=0。
      */
-    static ProbeResult fetchPersonalInfo(Page page) {
+    static ProbeResult fetchUserInfo(Page page, String apiBase) {
         try {
             Object result = page.evaluate("""
                     async (args) => {
                       try {
-                        const a = await fetch(args.base + args.csrfPath, {credentials: 'include'});
-                        const csrf = a.headers.get('csrf');
-                        const r = await fetch(args.base + args.personalInfoPath,
-                          {credentials: 'include', headers: csrf ? {csrf} : {}});
+                        const r = await fetch(args.base + args.path, {credentials: 'include'});
                         return {status: r.status, body: await r.text()};
                       } catch (e) {
                         return {status: 0, body: ''};
                       }
                     }
                     """, Map.of(
-                    "base", HuaweiUrls.API_BASE,
-                    "csrfPath", HuaweiUrls.CSRF_PATH,
-                    "personalInfoPath", HuaweiUrls.PERSONAL_INFO_PATH));
+                    "base", apiBase,
+                    "path", HuaweiUrls.USER_INFO_PATH));
             if (result instanceof Map<?, ?> map) {
                 int status = map.get("status") instanceof Number number ? number.intValue() : 0;
                 String body = ObjectUtil.defaultIfNull(map.get("body"), "").toString();

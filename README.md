@@ -1,6 +1,6 @@
 # fuck-hwcloud-grow
 
-华为云开发者成长中心每日自动签到工具。基于 Spring Boot 3.5 + Playwright，每天定时自动完成[华为云开发者成长中心](https://developer.huaweicloud.com/grow)的每日签到，赚取积分。
+华为云开发者成长中心每日自动签到工具。基于 Spring Boot 3.5 + Playwright，每天定时自动完成[华为云开发者成长中心](https://grow.developer.huaweicloud.com/)的每日签到，赚取积分。
 
 ## 功能特性
 

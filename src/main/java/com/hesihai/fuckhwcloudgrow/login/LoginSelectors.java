@@ -32,6 +32,7 @@ public final class LoginSelectors {
             ".hwid-pwdlogin-root .hwid-errorMsg-root",
             ".pwdlogin-error");
     public static final List<String> LOGGED_IN_TEXTS = List.of(
+            "退出登录",
             "我的积分",
             "积分明细");
     public static final List<String> LOGGED_OUT_TEXTS = List.of(

@@ -20,13 +20,14 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.net.URI;
 import java.time.Duration;
 import java.util.Map;
 
 /**
  * 使用持久化 Cookie 直接调用华为云接口（HTTP 快速路径）。
  *
- * <p>只负责 RestClient 传输、请求头以及网络/5xx 重试；csrf、业务错误分类和响应解析
+ * <p>只负责 RestClient 传输、请求头以及网络/5xx 重试；业务错误分类和响应解析
  * 由 {@link AbstractGrowthApi} 统一处理。</p>
  */
 @Slf4j
@@ -38,6 +39,7 @@ public class HttpGrowthApi extends AbstractGrowthApi {
 
     private final RestClient restClient;
     private final CookieJar cookieJar;
+    private final String apiHost;
     private final String userAgent;
     private final int maxAttempts;
     private final Duration retryBackoff;
@@ -45,9 +47,10 @@ public class HttpGrowthApi extends AbstractGrowthApi {
     public HttpGrowthApi(HwcloudGrowProperties properties, CookieJar cookieJar,
                          String userAgent, ObjectMapper objectMapper) {
         super(objectMapper, "HTTP");
+        this.apiHost = URI.create(properties.getApi().getBaseUrl()).getHost();
         // 构造期即校验 Cookie：没有可用登录态时直接抛出，避免上层无谓执行一轮
-        if (ObjectUtil.isNull(cookieJar) || cookieJar.isEmpty()) {
-            throw GrowthApiException.sessionExpired("未找到有效的华为云 Cookie");
+        if (ObjectUtil.isNull(cookieJar) || cookieJar.isEmpty(apiHost)) {
+            throw GrowthApiException.sessionExpired("未找到可用于成长中心接口的华为云 Cookie");
         }
         this.cookieJar = cookieJar;
         this.userAgent = StrUtil.isBlank(userAgent) ? DEFAULT_USER_AGENT : userAgent;
@@ -74,12 +77,11 @@ public class HttpGrowthApi extends AbstractGrowthApi {
      * HTTP 传输层：网络异常与 5xx/429 做有限次退避重试。
      */
     @Override
-    protected ResponseData executeRaw(HttpMethod method, String path, Object body,
-                                      boolean withCsrf) {
+    protected ResponseData executeRaw(HttpMethod method, String path, Object body) {
         GrowthApiException lastNetworkError = null;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-                ResponseData data = doExecute(method, path, body, withCsrf);
+                ResponseData data = doExecute(method, path, body);
                 boolean retryableStatus = data.status() >= 500 || data.status() == 429;
                 if (retryableStatus && attempt < maxAttempts) {
                     SleepUtils.sleep(retryBackoff.multipliedBy(attempt),
@@ -104,12 +106,11 @@ public class HttpGrowthApi extends AbstractGrowthApi {
                 : GrowthApiException.network("请求华为云接口失败", null);
     }
 
-    private ResponseData doExecute(HttpMethod method, String path, Object body,
-                                   boolean withCsrf) {
+    private ResponseData doExecute(HttpMethod method, String path, Object body) {
         try {
             RestClient.RequestBodySpec spec = restClient.method(method)
                     .uri(path)
-                    .headers(headers -> applyHeaders(headers, withCsrf, method == HttpMethod.POST));
+                    .headers(headers -> applyHeaders(headers, method == HttpMethod.POST));
             if (ObjectUtil.isNotNull(body)) {
                 spec.contentType(MediaType.APPLICATION_JSON).body(body);
             }
@@ -124,17 +125,14 @@ public class HttpGrowthApi extends AbstractGrowthApi {
         }
     }
 
-    private void applyHeaders(HttpHeaders headers, boolean withCsrf, boolean isPost) {
-        headers.set(HttpHeaders.COOKIE, cookieJar.header());
+    private void applyHeaders(HttpHeaders headers, boolean isPost) {
+        headers.set(HttpHeaders.COOKIE, cookieJar.header(apiHost));
         headers.set(HttpHeaders.USER_AGENT, userAgent);
         headers.set(HttpHeaders.REFERER, HuaweiUrls.GROW_URL);
         headers.set(HttpHeaders.ACCEPT, "application/json, text/plain, */*");
         headers.set(HttpHeaders.ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9");
         if (isPost) {
             headers.set(HttpHeaders.ORIGIN, HuaweiUrls.GROW_ORIGIN);
-        }
-        if (withCsrf) {
-            headers.set("csrf", csrfToken());
         }
     }
 }

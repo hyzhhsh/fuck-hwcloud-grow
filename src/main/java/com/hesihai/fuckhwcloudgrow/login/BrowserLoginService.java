@@ -47,7 +47,8 @@ public class BrowserLoginService {
         this.properties = properties;
         this.notifier = notifier;
         this.detector = new LoginDetector(properties);
-        this.persister = new LoginStatePersister(authStateStore, objectMapper);
+        this.persister = new LoginStatePersister(authStateStore, objectMapper,
+                properties.getApi().getBaseUrl());
     }
 
     /**

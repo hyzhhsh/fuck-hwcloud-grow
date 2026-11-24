@@ -140,8 +140,6 @@ public class XizhiNotifier {
         String content = "状态：" + status
                 + "\n账号：" + nullToDash(result.getAccountName())
                 + "\n积分：" + points
-                + "\n连续签到：" + nullToDash(result.getContinuityCount()) + " 天"
-                + "\n最近签到：" + nullToDash(result.getLastSignTime())
                 + "\n来源：" + nullToDash(result.getApiSource())
                 + "\n时间：" + TIME_FORMAT.format(ObjectUtil.defaultIfNull(
                 result.getFinishedAt(), Instant.now()));

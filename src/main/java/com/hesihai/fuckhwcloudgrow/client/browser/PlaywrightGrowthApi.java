@@ -30,10 +30,12 @@ import java.util.Map;
 public class PlaywrightGrowthApi extends AbstractGrowthApi {
 
     private final BrowserSession session;
+    private final String apiBase;
 
-    public PlaywrightGrowthApi(BrowserSession session, ObjectMapper objectMapper) {
+    public PlaywrightGrowthApi(BrowserSession session, ObjectMapper objectMapper, String apiBase) {
         super(objectMapper, "PLAYWRIGHT");
         this.session = session;
+        this.apiBase = StrUtil.blankToDefault(apiBase, HuaweiUrls.API_BASE);
     }
 
     /**
@@ -45,13 +47,9 @@ public class PlaywrightGrowthApi extends AbstractGrowthApi {
         }
         int status = map.get("status") instanceof Number number ? number.intValue() : 0;
         String contentType = ObjectUtil.defaultIfNull(map.get("contentType"), "").toString();
-        String csrfHeader = ObjectUtil.isNull(map.get("csrf")) ? null : map.get("csrf").toString();
         String body = ObjectUtil.defaultIfNull(map.get("body"), "").toString();
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("content-type", contentType);
-        if (StrUtil.isNotBlank(csrfHeader)) {
-            headers.put("csrf", csrfHeader);
-        }
         return new ResponseData(status, body, headers);
     }
 
@@ -59,20 +57,16 @@ public class PlaywrightGrowthApi extends AbstractGrowthApi {
      * 页面内 fetch；Playwright 的 evaluate 失败时退回到 context.request。
      */
     @Override
-    protected ResponseData executeRaw(HttpMethod method, String path, Object body,
-                                      boolean withCsrf) {
+    protected ResponseData executeRaw(HttpMethod method, String path, Object body) {
         Page page = ensureGrowPage();
         try {
             Map<String, Object> args = new LinkedHashMap<>();
-            args.put("url", HuaweiUrls.API_BASE + path);
+            args.put("url", apiBase + path);
             args.put("method", method.name());
             Map<String, String> headers = new LinkedHashMap<>();
             headers.put("Accept", "application/json, text/plain, */*");
             if (ObjectUtil.isNotNull(body)) {
                 headers.put("Content-Type", "application/json");
-            }
-            if (withCsrf) {
-                headers.put("csrf", csrfToken());
             }
             args.put("headers", headers);
             args.put("body", body);
@@ -88,7 +82,6 @@ public class PlaywrightGrowthApi extends AbstractGrowthApi {
                       return {
                         status: resp.status,
                         contentType: resp.headers.get('content-type') || '',
-                        csrf: resp.headers.get('csrf'),
                         body: await resp.text()
                       };
                     }
@@ -99,26 +92,12 @@ public class PlaywrightGrowthApi extends AbstractGrowthApi {
         } catch (PlaywrightException e) {
             log.warn("页面内 fetch 失败，改用 context.request：{} {}，原因：{}",
                     method, path, e.getMessage());
-            return executeWithApiRequest(page, method, path, body, withCsrf);
+            return executeWithApiRequest(page, method, path, body);
         }
     }
 
     /**
-     * 页面内 fetch 没拿到 csrf 时，用 context.request 再取一次。
-     */
-    @Override
-    protected String csrfTokenFrom(ResponseData data) {
-        String token = super.csrfTokenFrom(data);
-        if (StrUtil.isNotBlank(token)) {
-            return token;
-        }
-        ResponseData fallback = executeWithApiRequest(ensureGrowPage(),
-                HttpMethod.GET, HuaweiUrls.CSRF_PATH, null, false);
-        return super.csrfTokenFrom(fallback);
-    }
-
-    /**
-     * 页面不在成长中心时先导航过去；登录态失效则抛给上层触发重新登录。
+     * 页面不在成长中心新站点时先导航过去；登录态失效则抛给上层触发重新登录。
      */
     private Page ensureGrowPage() {
         Page page = session.activePage();
@@ -126,7 +105,8 @@ public class PlaywrightGrowthApi extends AbstractGrowthApi {
             throw GrowthApiException.sessionExpired("浏览器页面已关闭");
         }
         String url = page.url();
-        if (StrUtil.isBlank(url) || !url.contains(HuaweiUrls.DEVELOPER_DOMAIN)) {
+        // 页面内 fetch 需要与新站点同源，否则接口的 CORS 会拒绝携带 Cookie 的请求
+        if (StrUtil.isBlank(url) || !url.contains(HuaweiUrls.GROW_HOST)) {
             try {
                 page.navigate(HuaweiUrls.GROW_URL,
                         new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
@@ -150,18 +130,15 @@ public class PlaywrightGrowthApi extends AbstractGrowthApi {
      * 页面内 fetch 失败时的兜底通道：用 context.request 直接请求，同样携带登录态。
      */
     private ResponseData executeWithApiRequest(Page page, HttpMethod method, String path,
-                                               Object body, boolean withCsrf) {
+                                               Object body) {
         try {
             RequestOptions options = RequestOptions.create().setMethod(method.name());
             options.setHeader("Accept", "application/json, text/plain, */*");
             if (ObjectUtil.isNotNull(body)) {
                 options.setData(body);
             }
-            if (withCsrf) {
-                options.setHeader("csrf", csrfToken());
-            }
             APIRequestContext request = session.context().request();
-            APIResponse response = request.fetch(HuaweiUrls.API_BASE + path, options);
+            APIResponse response = request.fetch(apiBase + path, options);
             log.debug("context.request {} {} -> {}", method, path, response.status());
             return new ResponseData(response.status(), response.text(), response.headers());
         } catch (PlaywrightException e) {
