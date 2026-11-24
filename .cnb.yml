@@ -7,3 +7,10 @@ main:
       env:
         SYNC_TARGETS: |
           github|github.com/hyzhhsh/fuck-hwcloud-grow.git|x-access-token|${GITHUB_TOKEN}
+
+develop:
+  push:
+    repo-sync:
+      env:
+        SYNC_TARGETS: |
+          github|github.com/hyzhhsh/fuck-hwcloud-grow.git|x-access-token|${GITHUB_TOKEN}
